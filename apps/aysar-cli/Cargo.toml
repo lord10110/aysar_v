@@ -19,6 +19,7 @@ aysar-analysis.workspace = true
 aysar-spec.workspace = true
 aysar-build.workspace = true
 aysar-verify.workspace = true
+aysar-render.workspace = true
 aysar-orchestrator.workspace = true
 aysar-mcp.workspace = true
 anyhow.workspace = true

@@ -14,6 +14,7 @@ aysar-capture.workspace = true
 aysar-analysis.workspace = true
 aysar-orchestrator.workspace = true
 aysar-build.workspace = true
+aysar-render.workspace = true
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true

@@ -57,9 +57,10 @@ pub struct PageCapture {
     pub image_count: usize,
     /// Semantic landmarks found (`header`, `nav`, `main`, `footer`, ...).
     pub landmarks: Vec<String>,
-    /// Colours seen in inline styles / style tags. Deep mode only.
+    /// Colours: from inline styles / style tags in Deep mode, or measured
+    /// on the rendered page (any mode, since a visitor can see them).
     pub colors: Vec<String>,
-    /// Font families seen in inline styles / style tags. Deep mode only.
+    /// Font families, same sources as `colors`.
     pub fonts: Vec<String>,
     /// External stylesheet URLs. Deep mode only.
     pub stylesheets: Vec<String>,
@@ -67,6 +68,77 @@ pub struct PageCapture {
     pub scripts: Vec<String>,
     /// SHA-256 of the raw bytes, so a page can be recognised later.
     pub content_hash: String,
+    /// What the page looks like at each width, when a renderer was available.
+    #[serde(default)]
+    pub viewports: Vec<Viewport>,
+    /// Measured styles from the rendered page, when a renderer was available.
+    #[serde(default)]
+    pub style: Option<StyleSample>,
+}
+
+/// A rectangle on the rendered page, in CSS pixels.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LayoutBox {
+    /// What it is: `header`, `nav`, `main`, `footer`, `h1`, `form`, `img`, …
+    pub kind: String,
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+}
+
+impl LayoutBox {
+    pub fn area(&self) -> f32 {
+        self.w.max(0.0) * self.h.max(0.0)
+    }
+
+    /// Intersection over union with another box.
+    pub fn iou(&self, o: &LayoutBox) -> f32 {
+        let x1 = self.x.max(o.x);
+        let y1 = self.y.max(o.y);
+        let x2 = (self.x + self.w).min(o.x + o.w);
+        let y2 = (self.y + self.h).min(o.y + o.h);
+        let inter = (x2 - x1).max(0.0) * (y2 - y1).max(0.0);
+        let union = self.area() + o.area() - inter;
+        if union <= 0.0 {
+            0.0
+        } else {
+            inter / union
+        }
+    }
+}
+
+/// The page rendered at one width.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Viewport {
+    pub width: u32,
+    /// Full document height at this width.
+    pub height: u32,
+    /// Path of the full-page PNG, relative to the capture folder.
+    pub screenshot: Option<String>,
+    /// Difference hash of the screenshot (16 hex chars = 64 bits), for
+    /// cheap visual similarity.
+    pub dhash: Option<String>,
+    pub boxes: Vec<LayoutBox>,
+}
+
+/// Styles measured on the rendered page.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct StyleSample {
+    /// Colour → how many elements use it (text or background).
+    pub colors: Vec<(String, u32)>,
+    /// Font family → how many elements use it.
+    pub fonts: Vec<(String, u32)>,
+    /// Distinct font sizes in px, ascending.
+    pub font_sizes: Vec<f32>,
+    /// Distinct margin/padding values in px, ascending.
+    pub spacing: Vec<f32>,
+    /// Distinct border radii in px, ascending.
+    pub radii: Vec<f32>,
+    /// Body background colour.
+    pub background: Option<String>,
+    /// Body text colour.
+    pub foreground: Option<String>,
 }
 
 /// A whole capture of a target.

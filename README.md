@@ -6,10 +6,10 @@
 
 Aysar is an open-source engine in pure Rust. Point it at a target, say what you want, and it:
 
-1. **Studies** the original with real inspection tools (Clean room by default: only what a visitor sees).
+1. **Studies** the original with real inspection tools: structure, text, forms, and — in headless Chromium — screenshots at 360/768/1280px, measured colours, fonts, type scale, spacing and where every region sits (Clean room by default: only what a visitor sees).
 2. **Writes a spec** — a readable, editable intermediate specification. You can review and change it before a single line of code is written.
 3. **Builds** a new project with the coding agent you already have (Claude Code, Codex, or any command-line agent).
-4. **Checks** the build against the original — structure, content shape, and (soon) rendered visuals and live behaviour — and lists what doesn't match yet, in plain sentences.
+4. **Checks** the build against the original — structure, content shape, and rendered visuals (screenshot hash, region layout, page height, palette and fonts at each width) — and lists what doesn't match yet, in plain sentences.
 5. **Refines** until the score reaches your target.
 
 Every claim Aysar makes is recorded in an evidence ledger with its source and confidence.
@@ -26,13 +26,13 @@ Tools like [Craft Anything](https://github.com/storytold/craft-anything) proved 
 |---|---|
 | **Spec in the middle** | Study → **Spec** → Build. The spec is a file you can read, diff and edit. The builder works from the spec, not from raw tool dumps. |
 | **Agent-agnostic** | One `Agent` trait. Claude Code and Codex are built in; any other agent is one command template away (`aider --message-file {prompt_file}`). Dry-run mode works with no AI at all. |
-| **Checked, with reasons** | Every mismatch is an actionable sentence (`/contact: form is missing fields email:email`). Checks feed straight back into the next build round. |
+| **Checked, with reasons** | Every mismatch is an actionable sentence (`/contact: form is missing fields email:email`, `/ at 360/768/1280px: <footer> is 66px tall in the original and 18px in the build`). Checks feed straight back into the next build round. |
 | **Evidence ledger** | Observations, inferences, checks and decisions, each with a source and confidence, queryable (`aysar evidence`). |
 | **Engines, not rewrites** | Disassembly and decompilation are delegated to existing engines (craft-anything first) behind one `Engine` trait. Aysar's own code is the orchestration, the spec, the verification and the gateway. |
 
 ## Quick start
 
-Requires Rust 1.80+.
+Requires Rust 1.80+. For screenshots, measured styles and visual checks, a Chrome or Chromium on the machine (found automatically; or set `AYSAR_CHROME`). Everything else works without it.
 
 ```bash
 git clone https://github.com/aysar-dev/aysar && cd aysar
@@ -73,7 +73,7 @@ aysar compare https://original.example ./my-build
 
 ### Clean room or Deep
 
-- **Clean room** (default): Aysar reads only what a visitor sees — titles, headings, links, forms, visible text, landmarks, image counts. Stylesheets, scripts, source and binaries are **not** read. Tools that would look inside refuse and tell you how to switch.
+- **Clean room** (default): Aysar reads only what a visitor sees — titles, headings, links, forms, visible text, landmarks, image counts, and what the rendered page looks like (screenshots, measured colours, fonts, spacing, layout). Stylesheets, scripts, source and binaries are **not** read. Tools that would look inside refuse and tell you how to switch.
 - **Deep** (`--deep`): everything is read, for your private use — styles, scripts, raw HTML, and binaries through the analysis engine.
 
 ### Coding agents
@@ -103,10 +103,10 @@ Tools: `aysar_study`, `aysar_identify`, `aysar_rebuild`, `aysar_check`, `aysar_d
 ```
 ~/Documents/Aysar/<name>/
   aysar.json          request, target, mode, stage, score, history
-  capture/            capture.json (+ raw/ in Deep mode)
+  capture/            capture.json, screenshots/<page>-<width>.png (+ raw/ in Deep mode)
   spec/               spec.json, spec.md, prompt-round-N.md
   app/                the generated project
-  checks/             check-001.json / .md, …
+  checks/             check-001.json / .md, check-001-screenshots/, …
   evidence/           ledger.jsonl
   inbox/              open questions for you
 ```
@@ -120,7 +120,8 @@ crates/
   aysar-analysis      Engine trait + craft-anything adapter + file identification
   aysar-spec          capture → spec (deterministic, reproducible)
   aysar-build         Agent trait, Claude Code / Codex / Script / DryRun, prompt builder
-  aysar-verify        structural + content comparison, actionable mismatches
+  aysar-verify        structure + content + visual comparison, actionable mismatches
+  aysar-render        headless Chromium: screenshots, layout boxes, measured styles; static server
   aysar-orchestrator  Study → Spec → Build → Check → Refine
   aysar-mcp           stdio MCP server
 apps/
@@ -128,20 +129,21 @@ apps/
 docs/                 ARCHITECTURE, ROADMAP, SPEC-FORMAT
 ```
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the pieces fit and [docs/ROADMAP.md](docs/ROADMAP.md) for what's next (renderer-based visual checks, behaviour checks, app and game verticals, desktop app).
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the pieces fit and [docs/ROADMAP.md](docs/ROADMAP.md) for what's next (behaviour checks, app and game verticals, desktop app).
 
 ## Status
 
 Alpha. What works today, verified by tests and a dry run on a sample site:
 
 - Website study (HTTP and local), Clean room and Deep.
-- Deterministic spec generation with behaviours and rules.
+- Rendering in headless Chromium: full-page screenshots at 360/768/1280px, region boxes, measured colours/fonts/type scale/spacing/radii.
+- Deterministic spec generation with a measured design system, per-width layout, behaviours and rules.
 - Build through Claude Code, Codex, any command template, or dry run.
-- Structural and content checks with actionable mismatches; refinement rounds that feed the last check back to the builder.
+- Structure, content and visual checks with actionable mismatches (grouped by width); refinement rounds that feed the last check back to the builder.
 - Evidence ledger; project state and history.
 - CLI and MCP server.
 
-Not yet: rendered visual checks, behaviour checks, engine-driven app/game study, desktop app. These are the next phases in the roadmap.
+Not yet: behaviour checks (clicking, submitting), hover/focus states, engine-driven app/game study, desktop app. These are the next phases in the roadmap.
 
 ## Responsible use
 

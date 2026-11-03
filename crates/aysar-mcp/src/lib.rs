@@ -28,7 +28,8 @@ pub fn tool_list() -> Value {
             "inputSchema": {"type":"object","properties":{
                 "target":{"type":"string","description":"URL or local path"},
                 "deep":{"type":"boolean","default":false},
-                "max_pages":{"type":"integer","default":5}
+                "max_pages":{"type":"integer","default":5},
+                "render":{"type":"boolean","default":true,"description":"Render in headless Chromium for screenshots, measured styles and layout"}
             },"required":["target"]}
         },
         {
@@ -124,7 +125,12 @@ pub fn call_tool(name: &str, args: &Value) -> anyhow::Result<Value> {
                 text.push_str(&format!("  {} {}\n", if *ok { "✓" } else { "✗" }, name));
             }
             text.push_str(&format!("Engine: {} {}\n", engine.name(), engine.version().unwrap_or_default()));
-            Ok(text_result(text, Some(json!({"agents": agents, "engine": engine.name()}))))
+            let chrome = aysar_render::find_chrome();
+            text.push_str(&format!(
+                "Renderer: {}\n",
+                chrome.as_ref().map(|c| c.display().to_string()).unwrap_or_else(|| "none".into())
+            ));
+            Ok(text_result(text, Some(json!({"agents": agents, "engine": engine.name(), "chrome": chrome}))))
         }
         other => anyhow::bail!("unknown tool {other}"),
     }

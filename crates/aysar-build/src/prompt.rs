@@ -53,7 +53,7 @@ pub fn build_prompt(
         p.push_str("- `index.html` at the root, and one file per page in the spec, with the same `<title>`, headings and navigation structure.\n");
         p.push_str("- Semantic landmarks (`header`, `nav`, `main`, `footer`) where the spec lists them.\n");
         p.push_str("- Forms with the same fields, types and required flags; client-side validation and a visible success/error state.\n");
-        p.push_str("- Responsive at 360px, 768px and 1280px widths.\n");
+        p.push_str("- Responsive at 360px, 768px and 1280px widths. The result is rendered at those widths and compared with the original: match the measured colours, fonts, type scale, spacing and the height and order of header, navigation, main, forms and footer given under each page's **Layout (measured)**.\n");
     }
     p.push_str("- Do not ask questions; make sensible choices and note them in `DECISIONS.md`.\n\n");
 

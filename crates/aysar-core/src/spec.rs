@@ -24,13 +24,48 @@ pub struct PageSpec {
     pub text_sample: String,
     pub word_count: usize,
     pub image_count: usize,
+    /// Layout at each measured width, when a renderer was available.
+    #[serde(default)]
+    pub viewports: Vec<ViewportSpec>,
+}
+
+/// How the page is laid out at one width: document height and where the
+/// main regions sit. Enough for a builder to match proportions.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ViewportSpec {
+    pub width: u32,
+    pub height: u32,
+    /// `kind` → (top, height) for header/nav/main/footer/h1/form…
+    pub regions: Vec<Region>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Region {
+    pub kind: String,
+    pub top: u32,
+    pub height: u32,
+    pub width: u32,
 }
 
 /// Design tokens inferred from the target.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DesignSystem {
+    /// Most-used colours first (hex), when measured; else as seen in styles.
     pub colors: Vec<String>,
     pub fonts: Vec<String>,
+    /// Distinct font sizes in px, ascending (measured).
+    #[serde(default)]
+    pub type_scale: Vec<f32>,
+    /// Common margin/padding values in px, ascending (measured).
+    #[serde(default)]
+    pub spacing: Vec<f32>,
+    /// Border radii in px, ascending (measured).
+    #[serde(default)]
+    pub radii: Vec<f32>,
+    #[serde(default)]
+    pub background: Option<String>,
+    #[serde(default)]
+    pub foreground: Option<String>,
     pub notes: Vec<String>,
 }
 
@@ -102,15 +137,28 @@ impl Spec {
         }
         out.push_str(&format!("\n## Request\n\n{}\n", self.request));
 
-        if !self.design.colors.is_empty() || !self.design.fonts.is_empty() {
+        let d = &self.design;
+        if !d.colors.is_empty() || !d.fonts.is_empty() || !d.notes.is_empty() {
             out.push_str("\n## Design\n\n");
-            if !self.design.colors.is_empty() {
-                out.push_str(&format!("- Colours: {}\n", self.design.colors.join(", ")));
+            if let (Some(bg), Some(fg)) = (&d.background, &d.foreground) {
+                out.push_str(&format!("- Page background {bg}, text {fg}\n"));
             }
-            if !self.design.fonts.is_empty() {
-                out.push_str(&format!("- Fonts: {}\n", self.design.fonts.join(", ")));
+            if !d.colors.is_empty() {
+                out.push_str(&format!("- Colours (most used first): {}\n", d.colors.join(", ")));
             }
-            for n in &self.design.notes {
+            if !d.fonts.is_empty() {
+                out.push_str(&format!("- Fonts: {}\n", d.fonts.join(", ")));
+            }
+            if !d.type_scale.is_empty() {
+                out.push_str(&format!("- Type scale (px): {}\n", px_list(&d.type_scale)));
+            }
+            if !d.spacing.is_empty() {
+                out.push_str(&format!("- Spacing values (px): {}\n", px_list(&d.spacing)));
+            }
+            if !d.radii.is_empty() {
+                out.push_str(&format!("- Border radii (px): {}\n", px_list(&d.radii)));
+            }
+            for n in &d.notes {
                 out.push_str(&format!("- {n}\n"));
             }
         }
@@ -127,6 +175,22 @@ impl Spec {
                     out.push_str(&format!("- Landmarks: {}\n", p.landmarks.join(", ")));
                 }
                 out.push_str(&format!("- ~{} words, {} images\n", p.word_count, p.image_count));
+                if !p.viewports.is_empty() {
+                    out.push_str("- Layout (measured):\n");
+                    for v in &p.viewports {
+                        let regions: Vec<String> = v
+                            .regions
+                            .iter()
+                            .map(|r| format!("{} at {}px, {}px tall", r.kind, r.top, r.height))
+                            .collect();
+                        out.push_str(&format!(
+                            "  - {}px wide: page is {}px tall; {}\n",
+                            v.width,
+                            v.height,
+                            if regions.is_empty() { "no regions measured".to_string() } else { regions.join("; ") }
+                        ));
+                    }
+                }
                 if !p.headings.is_empty() {
                     out.push_str("- Headings:\n");
                     for h in &p.headings {
@@ -185,4 +249,11 @@ impl Spec {
         }
         out
     }
+}
+
+fn px_list(v: &[f32]) -> String {
+    v.iter()
+        .map(|x| if (x - x.round()).abs() < 0.05 { format!("{}", x.round() as i64) } else { format!("{x:.1}") })
+        .collect::<Vec<_>>()
+        .join(", ")
 }

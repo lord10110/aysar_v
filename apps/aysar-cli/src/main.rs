@@ -18,6 +18,9 @@ struct Cli {
     /// Only what a visitor sees (the default).
     #[arg(long, global = true)]
     clean_room: bool,
+    /// Skip Chromium rendering (no screenshots, measured styles or visual checks).
+    #[arg(long, global = true)]
+    no_render: bool,
     #[command(subcommand)]
     cmd: Cmd,
 }
@@ -131,6 +134,9 @@ fn main() {
 fn run() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let mode = if cli.deep { Mode::Deep } else { Mode::CleanRoom };
+    if cli.no_render {
+        std::env::set_var("AYSAR_NO_RENDER", "1");
+    }
     let rep = Stdout;
 
     match cli.cmd {
@@ -147,6 +153,11 @@ fn run() -> anyhow::Result<()> {
             } else {
                 println!("  ✓ {} {}", engine.name(), engine.version().unwrap_or_default());
             }
+            println!("\nRenderer (for screenshots, measured styles and visual checks):");
+            match aysar_render::find_chrome() {
+                Some(c) => println!("  ✓ Chromium at {}", c.display()),
+                None => println!("  ✗ none — install Google Chrome or Chromium, or set AYSAR_CHROME=/path/to/chrome"),
+            }
             println!("\nProjects folder: {}", aysar_orchestrator::default_projects_dir().display());
             println!("Mode: {mode}");
             let any_agent = aysar_build::status().iter().any(|(n, ok)| *ok && n != "dry-run");
@@ -157,9 +168,22 @@ fn run() -> anyhow::Result<()> {
 
         Cmd::Study { target, max_pages, out } => {
             let t = Target::parse(&target);
-            let cap =
+            let mut cap =
                 aysar_capture::capture(&t, &aysar_capture::CaptureOptions { mode, max_pages, ..Default::default() })?;
+            let shots = aysar_orchestrator::render_adhoc(&mut cap, &t, &rep)?;
             println!("{}", aysar_capture::summarise(&cap));
+            if let Some(st) = cap.pages.iter().find_map(|p| p.style.as_ref()) {
+                println!("\nMeasured on the rendered page:");
+                if let (Some(bg), Some(fg)) = (&st.background, &st.foreground) {
+                    println!("  background {bg}, text {fg}");
+                }
+                let cols: Vec<String> = st.colors.iter().take(8).map(|c| c.0.clone()).collect();
+                let fonts: Vec<String> = st.fonts.iter().take(4).map(|f| f.0.clone()).collect();
+                println!("  colours: {}", cols.join(", "));
+                println!("  fonts: {}", fonts.join(", "));
+                println!("  type scale: {:?}", st.font_sizes);
+                println!("  screenshots: {}", shots.join("screenshots").display());
+            }
             if let Some(o) = out {
                 aysar_capture::save(&cap, &o)?;
                 println!("\nSaved → {}", o.display());
@@ -212,8 +236,8 @@ fn run() -> anyhow::Result<()> {
         }
 
         Cmd::Compare { original, build } => {
-            let a = load_or_capture(&original, mode)?;
-            let b = load_or_capture(&build, Mode::Deep)?;
+            let a = load_or_capture(&original, mode, &rep)?;
+            let b = load_or_capture(&build, Mode::Deep, &rep)?;
             let r = aysar_verify::compare(&a, &b);
             println!("{}", r.to_markdown());
         }
@@ -283,15 +307,16 @@ fn run() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn load_or_capture(s: &str, mode: Mode) -> anyhow::Result<Capture> {
+fn load_or_capture(s: &str, mode: Mode, rep: &dyn aysar_orchestrator::Reporter) -> anyhow::Result<Capture> {
     let p = PathBuf::from(s);
     if p.is_file() && s.ends_with(".json") {
         return aysar_capture::load(&p);
     }
-    aysar_capture::capture(
-        &Target::parse(s),
-        &aysar_capture::CaptureOptions { mode, max_pages: 20, ..Default::default() },
-    )
+    let t = Target::parse(s);
+    let mut cap =
+        aysar_capture::capture(&t, &aysar_capture::CaptureOptions { mode, max_pages: 20, ..Default::default() })?;
+    aysar_orchestrator::render_adhoc(&mut cap, &t, rep)?;
+    Ok(cap)
 }
 
 fn latest_report(p: &Project) -> anyhow::Result<Option<aysar_verify::Report>> {

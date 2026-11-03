@@ -30,14 +30,24 @@ The spec is the contract between study and build. It lives at `<project>/spec/sp
       "landmarks": [ "header", "nav", "main", "footer" ],
       "text_sample": "first ~60 words, for tone and structure only",
       "word_count": 31,
-      "image_count": 1
+      "image_count": 1,
+      "viewports": [               // measured in Chromium, when available
+        { "width": 360, "height": 877,
+          "regions": [ { "kind": "header", "top": 0, "height": 50, "width": 360 },
+                       { "kind": "main",   "top": 50, "height": 697, "width": 360 } ] }
+      ]
     }
   ],
 
   "design": {
-    "colors": [ "#112233" ],      // Deep mode (or renderer) only
-    "fonts": [ "Inter" ],
-    "notes": [ "The original has a navigation landmark; keep a visible primary navigation." ]
+    "colors": [ "#2b1d12", "#ffffff", "#f2d9b8", "#7a3b10" ],   // most used first, measured
+    "fonts": [ "Georgia" ],
+    "type_scale": [ 16, 24, 40 ],   // px, measured at the widest viewport
+    "spacing": [ 12, 16, 24, 32, 48, 64 ],
+    "radii": [ 8, 12 ],
+    "background": "#fff8f0",
+    "foreground": "#2b1d12",
+    "notes": [ "Colours, fonts, type scale and spacing were measured on the rendered page at 3 width(s); match them closely." ]
   },
 
   "behaviors": [
@@ -66,9 +76,7 @@ The spec is the contract between study and build. It lives at `<project>/spec/sp
 - **`behaviors[].evidence`** points into the ledger. A behaviour with no evidence is a user decision or an enrichment, and is marked as such there.
 - **Anything an AI adds** (planned `aysar enrich`) is written under the same fields but recorded as `Inference` evidence with confidence < 1.0, so it can be told apart from observation.
 
-## Planned fields (phase 1+)
+## Planned fields
 
-- `pages[].viewports`: per-width layout boxes and screenshot paths.
-- `design.spacing`, `design.radius`, `design.type_scale`.
 - `pages[].states`: hover/focus/open states.
 - `screens` and `flows` for apps; `entities`, `inputs`, `rules` for games.

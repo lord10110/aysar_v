@@ -20,7 +20,8 @@ All four must pass before you finish.
 - `crates/aysar-analysis` — `Engine` trait and adapters. `Engine::run` must refuse in Clean room.
 - `crates/aysar-spec` — deterministic `Capture → Spec`. Keep it deterministic; AI enrichment is a separate step.
 - `crates/aysar-build` — `Agent` trait, adapters, `prompt::build_prompt`.
-- `crates/aysar-verify` — `compare(original, build) -> Report`. Mismatches are sentences.
+- `crates/aysar-verify` — `compare(original, build) -> Report`. Mismatches are sentences. Weights are the `WEIGHT_*` constants.
+- `crates/aysar-render` — headless Chromium (found on the machine, never downloaded). `MEASURE_JS` returns one JSON string per width; `StaticServer` serves folders on loopback.
 - `crates/aysar-orchestrator` — `study / specify / build / check / rebuild`.
 - `crates/aysar-mcp` — stdio MCP server. `handle()` is pure; keep it that way.
 - `apps/aysar-cli` — clap only; no logic.

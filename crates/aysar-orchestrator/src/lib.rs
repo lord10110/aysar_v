@@ -144,7 +144,8 @@ pub fn study(
         }
     }
 
-    let cap = aysar_capture::capture(&project.state.target, &opts)?;
+    let mut cap = aysar_capture::capture(&project.state.target, &opts)?;
+    render_capture(&mut cap, &project.state.target, &project.capture_dir(), &ledger, rep)?;
     aysar_capture::save(&cap, &project.capture_file())?;
     for p in &cap.pages {
         ledger.record(
@@ -165,6 +166,137 @@ pub fn study(
     rep.say(&aysar_capture::summarise(&cap));
     project.advance(Stage::Studied, format!("{} pages captured", cap.pages.len()))?;
     Ok(cap)
+}
+
+/// Render every captured page at the standard widths, if Chromium is on
+/// this machine. Local folders are served over a loopback HTTP server so
+/// `/path` links resolve. Fills `viewports` and `style` on each page and
+/// writes screenshots to `<capture_dir>/screenshots/`.
+pub fn render_capture(
+    cap: &mut aysar_core::capture::Capture,
+    target: &Target,
+    capture_dir: &Path,
+    ledger: &Ledger,
+    rep: &dyn Reporter,
+) -> anyhow::Result<()> {
+    if cap.pages.is_empty() {
+        return Ok(());
+    }
+    if std::env::var_os("AYSAR_NO_RENDER").is_some() {
+        cap.limitations.push(
+            "Rendering was turned off (--no-render), so no screenshots, measured styles or visual checks.".into(),
+        );
+        return Ok(());
+    }
+    let Some(renderer) = aysar_render::Renderer::launch() else {
+        cap.limitations.push("No Chromium found: pages were not rendered, so no screenshots, measured styles or visual checks. Install Chrome/Chromium or set AYSAR_CHROME.".into());
+        rep.say("  No Chromium found; skipping screenshots and measured styles.");
+        return Ok(());
+    };
+    rep.say(&format!(
+        "  Rendering {} page(s) at {:?}px with {}…",
+        cap.pages.len(),
+        aysar_render::DEFAULT_WIDTHS,
+        renderer.chrome.display()
+    ));
+
+    // Where to point the browser.
+    let mut server: Option<aysar_render::StaticServer> = None;
+    let base: Option<String> = match target {
+        Target::Website { url } => Some(url.trim_end_matches('/').to_string()),
+        Target::Local { path } => {
+            let p = Path::new(path);
+            let dir =
+                if p.is_dir() { p.to_path_buf() } else { p.parent().map(|x| x.to_path_buf()).unwrap_or_default() };
+            match aysar_render::StaticServer::serve(&dir) {
+                Ok(s) => {
+                    let u = s.url();
+                    server = Some(s);
+                    Some(u)
+                }
+                Err(e) => {
+                    cap.limitations.push(format!("Could not serve {} for rendering: {e}", dir.display()));
+                    None
+                }
+            }
+        }
+        Target::None => None,
+    };
+    let Some(base) = base else { return Ok(()) };
+
+    let shots = capture_dir.join("screenshots");
+    for page in cap.pages.iter_mut() {
+        let url = match target {
+            Target::Website { .. } => {
+                // Site pages keep their own absolute source URL.
+                if page.source.starts_with("http") {
+                    page.source.clone()
+                } else {
+                    format!("{base}{}", page.path)
+                }
+            }
+            _ => format!("{base}{}", page.path),
+        };
+        let name = slugify(&page.path);
+        let opts = aysar_render::RenderOptions {
+            screenshot_dir: Some(shots.clone()),
+            name: name.clone(),
+            ..Default::default()
+        };
+        match renderer.render(&url, &opts) {
+            Ok(mut r) => {
+                let widths: Vec<String> = r.viewports.iter().map(|v| format!("{}×{}", v.width, v.height)).collect();
+                rep.say(&format!("    {} → {}", page.path, widths.join(", ")));
+                ledger.record(
+                    EvidenceKind::Observation,
+                    format!(
+                        "rendered {} at {}; {} colours, fonts {:?}",
+                        page.path,
+                        widths.join(", "),
+                        r.style.colors.len(),
+                        r.style.fonts.iter().map(|f| &f.0).collect::<Vec<_>>()
+                    ),
+                    &url,
+                    1.0,
+                    vec![],
+                )?;
+                // Measured colours/fonts are what a visitor sees: allowed in any mode.
+                if page.colors.is_empty() {
+                    page.colors = r.style.colors.iter().map(|c| c.0.clone()).collect();
+                }
+                if page.fonts.is_empty() {
+                    page.fonts = r.style.fonts.iter().map(|f| f.0.clone()).collect();
+                }
+                for v in r.viewports.iter_mut() {
+                    if let Some(f) = &v.screenshot {
+                        v.screenshot = Some(format!("screenshots/{f}"));
+                    }
+                }
+                page.viewports = r.viewports;
+                page.style = Some(r.style);
+            }
+            Err(e) => {
+                cap.limitations.push(format!("{}: could not render ({e})", page.path));
+                rep.say(&format!("    {} → not rendered: {e}", page.path));
+            }
+        }
+    }
+    drop(server);
+    Ok(())
+}
+
+/// Render a capture that has no project (CLI `study` / `compare`): screenshots
+/// go to a scratch folder under the system temp dir.
+pub fn render_adhoc(
+    cap: &mut aysar_core::capture::Capture,
+    target: &Target,
+    rep: &dyn Reporter,
+) -> anyhow::Result<PathBuf> {
+    let dir = std::env::temp_dir().join(format!("aysar-adhoc-{}-{}", std::process::id(), slugify(&target.to_string())));
+    fs::create_dir_all(&dir)?;
+    let ledger = Ledger::open(dir.join("ledger.jsonl"))?;
+    render_capture(cap, target, &dir, &ledger, rep)?;
+    Ok(dir)
 }
 
 /// Step 2: generate the spec from the capture.
@@ -244,10 +376,21 @@ pub fn build(
 pub fn check(project: &mut Project, rep: &dyn Reporter) -> anyhow::Result<Report> {
     let ledger = Ledger::open(project.ledger_file())?;
     let original = aysar_capture::load(&project.capture_file())?;
-    let build_cap = aysar_capture::capture_local(
+    let mut build_cap = aysar_capture::capture_local(
         &project.app_dir(),
         &CaptureOptions { mode: Mode::Deep, max_pages: original.pages.len().max(1) + 5, ..Default::default() },
     )?;
+    if original.pages.iter().any(|p| !p.viewports.is_empty()) {
+        let n = project.next_check_number();
+        let shots_dir = project.checks_dir().join(format!("check-{n:03}-screenshots"));
+        render_capture(
+            &mut build_cap,
+            &Target::Local { path: project.app_dir().display().to_string() },
+            &shots_dir,
+            &ledger,
+            rep,
+        )?;
+    }
     let report = aysar_verify::compare(&original, &build_cap);
     let n = project.next_check_number();
     let json = project.checks_dir().join(format!("check-{n:03}.json"));

@@ -6,7 +6,7 @@
 
 use aysar_core::capture::Capture;
 use aysar_core::evidence::{EvidenceKind, Ledger};
-use aysar_core::spec::{Behavior, DesignSystem, PageSpec, Rules, Spec, SPEC_VERSION};
+use aysar_core::spec::{Behavior, DesignSystem, PageSpec, Region, Rules, Spec, ViewportSpec, SPEC_VERSION};
 use aysar_core::Kind;
 use std::collections::BTreeSet;
 
@@ -103,21 +103,31 @@ pub fn generate(input: SpecInput<'_>, ledger: Option<&Ledger>) -> anyhow::Result
             text_sample,
             word_count: p.word_count,
             image_count: p.image_count,
+            viewports: p
+                .viewports
+                .iter()
+                .map(|v| ViewportSpec {
+                    width: v.width,
+                    height: v.height,
+                    regions: v
+                        .boxes
+                        .iter()
+                        .filter(|b| {
+                            matches!(b.kind.as_str(), "header" | "nav" | "main" | "footer" | "h1" | "form" | "aside")
+                        })
+                        .map(|b| Region {
+                            kind: b.kind.clone(),
+                            top: b.y.max(0.0) as u32,
+                            height: b.h.max(0.0) as u32,
+                            width: b.w.max(0.0) as u32,
+                        })
+                        .collect(),
+                })
+                .collect(),
         });
     }
 
-    let mut design_notes = Vec::new();
-    if colors.is_empty() && fonts.is_empty() {
-        design_notes.push("No colours or fonts were measured (Clean room, or no inline styles). Choose a clean, accessible palette and system fonts, and keep the layout structure above.".into());
-    }
-    if let Some(home) = c.pages.iter().find(|p| p.path == "/") {
-        if home.landmarks.iter().any(|l| l.starts_with("nav")) {
-            design_notes.push("The original has a navigation landmark; keep a visible primary navigation.".into());
-        }
-        if home.landmarks.iter().any(|l| l.starts_with("footer")) {
-            design_notes.push("The original has a footer; include one.".into());
-        }
-    }
+    let design = extract_design(c, colors, fonts, ledger)?;
 
     let stack = detect_stack(input.request);
     let mut limitations = c.limitations.clone();
@@ -135,11 +145,7 @@ pub fn generate(input: SpecInput<'_>, ledger: Option<&Ledger>) -> anyhow::Result
         generated_at: aysar_core::now_rfc3339(),
         stack,
         pages,
-        design: DesignSystem {
-            colors: colors.into_iter().collect(),
-            fonts: fonts.into_iter().collect(),
-            notes: design_notes,
-        },
+        design,
         behaviors,
         rules: Rules { extra: input.extra_rules, ..Default::default() },
         limitations,
@@ -155,6 +161,102 @@ pub fn generate(input: SpecInput<'_>, ledger: Option<&Ledger>) -> anyhow::Result
         )?;
     }
     Ok(spec)
+}
+
+/// Build the design system: measured styles win; inline-style colours and
+/// fonts (Deep mode) are the fallback; otherwise a note tells the builder
+/// to choose.
+fn extract_design(
+    c: &Capture,
+    inline_colors: BTreeSet<String>,
+    inline_fonts: BTreeSet<String>,
+    ledger: Option<&Ledger>,
+) -> anyhow::Result<DesignSystem> {
+    let mut notes = Vec::new();
+    let measured: Vec<&aysar_core::capture::StyleSample> = c.pages.iter().filter_map(|p| p.style.as_ref()).collect();
+
+    let mut d = DesignSystem::default();
+    if !measured.is_empty() {
+        let mut colors: std::collections::BTreeMap<String, u32> = Default::default();
+        let mut fonts: std::collections::BTreeMap<String, u32> = Default::default();
+        let mut sizes = Vec::new();
+        let mut spacing = Vec::new();
+        let mut radii = Vec::new();
+        for st in &measured {
+            for (col, n) in &st.colors {
+                *colors.entry(col.clone()).or_default() += n;
+            }
+            for (f, n) in &st.fonts {
+                *fonts.entry(f.clone()).or_default() += n;
+            }
+            sizes.extend(st.font_sizes.iter().copied());
+            spacing.extend(st.spacing.iter().copied());
+            radii.extend(st.radii.iter().copied());
+        }
+        let mut colors: Vec<(String, u32)> = colors.into_iter().collect();
+        colors.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+        let mut fonts: Vec<(String, u32)> = fonts.into_iter().collect();
+        fonts.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+        d.colors = colors.into_iter().take(10).map(|(c, _)| c).collect();
+        d.fonts = fonts.into_iter().take(5).map(|(f, _)| f).collect();
+        d.type_scale = dedup_sorted(sizes, 10);
+        d.spacing = dedup_sorted(spacing, 10);
+        d.radii = dedup_sorted(radii, 6);
+        // Background/foreground from the home page if measured, else the first page.
+        let home = c.pages.iter().find(|p| p.path == "/").and_then(|p| p.style.as_ref()).or(measured.first().copied());
+        if let Some(h) = home {
+            d.background = h.background.clone();
+            d.foreground = h.foreground.clone();
+        }
+        notes.push(format!("Colours, fonts, type scale and spacing were measured on the rendered page at {} width(s); match them closely.", c.pages.iter().map(|p| p.viewports.len()).max().unwrap_or(0)));
+        if let Some(l) = ledger {
+            l.record(
+                EvidenceKind::Inference,
+                format!(
+                    "design system: {} colours, fonts {:?}, type scale {:?}",
+                    d.colors.len(),
+                    d.fonts,
+                    d.type_scale
+                ),
+                "render:computed-styles",
+                0.9,
+                vec![],
+            )?;
+        }
+    } else {
+        d.colors = inline_colors.into_iter().collect();
+        d.fonts = inline_fonts.into_iter().collect();
+        if d.colors.is_empty() && d.fonts.is_empty() {
+            notes.push("No colours or fonts were measured (no renderer, and Clean room reads no styles). Choose a clean, accessible palette and system fonts, and keep the layout structure above.".into());
+        } else {
+            notes
+                .push("Colours and fonts come from inline styles only; a renderer would measure the real ones.".into());
+        }
+    }
+
+    if let Some(home) = c.pages.iter().find(|p| p.path == "/") {
+        if home.landmarks.iter().any(|l| l.starts_with("nav")) {
+            notes.push("The original has a navigation landmark; keep a visible primary navigation.".into());
+        }
+        if home.landmarks.iter().any(|l| l.starts_with("footer")) {
+            notes.push("The original has a footer; include one.".into());
+        }
+    }
+    d.notes = notes;
+    Ok(d)
+}
+
+fn dedup_sorted(mut v: Vec<f32>, max: usize) -> Vec<f32> {
+    v.retain(|x| x.is_finite());
+    v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let mut out: Vec<f32> = Vec::new();
+    for x in v {
+        if out.last().map(|l| (l - x).abs() > 0.5).unwrap_or(true) {
+            out.push(x);
+        }
+    }
+    out.truncate(max);
+    out
 }
 
 /// Guess the requested stack from the request text.

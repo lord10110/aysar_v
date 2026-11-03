@@ -17,6 +17,11 @@ jobs:
         with:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
+      - uses: browser-actions/setup-chrome@v1
+        id: chrome
+      - name: Point Aysar at Chrome
+        shell: bash
+        run: echo "AYSAR_CHROME=${{ steps.chrome.outputs.chrome-path }}" >> "$GITHUB_ENV"
       - run: cargo fmt --all -- --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo build --release
