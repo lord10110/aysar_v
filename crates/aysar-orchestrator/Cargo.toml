@@ -1,0 +1,20 @@
+[package]
+name = "aysar-orchestrator"
+description = "The Study → Spec → Build → Check → Refine loop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+aysar-core.workspace = true
+aysar-capture.workspace = true
+aysar-analysis.workspace = true
+aysar-spec.workspace = true
+aysar-build.workspace = true
+aysar-verify.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true

@@ -1,0 +1,19 @@
+[package]
+name = "aysar-mcp"
+description = "A minimal MCP (stdio, JSON-RPC 2.0) server exposing Aysar's tools to any agent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+aysar-core.workspace = true
+aysar-capture.workspace = true
+aysar-analysis.workspace = true
+aysar-orchestrator.workspace = true
+aysar-build.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true

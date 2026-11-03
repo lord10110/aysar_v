@@ -1,0 +1,320 @@
+//! The agent gateway.
+//!
+//! Aysar is agent-agnostic. Every coding agent is reached through one trait,
+//! [`Agent`]. Built in:
+//!
+//! - [`ClaudeCode`]: runs your own `claude` program non-interactively.
+//! - [`Codex`]: runs `codex exec`.
+//! - [`Script`]: runs any command template with `{prompt}` and `{prompt_file}`
+//!   placeholders, so a new agent is one line of configuration away.
+//!
+//! The agent is always run **inside the project's `app/` folder** and never
+//! sees the original target's files: it works from the spec and the prompt.
+
+pub mod prompt;
+
+use serde::{Deserialize, Serialize};
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::time::Instant;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BuildOutput {
+    pub agent: String,
+    pub ok: bool,
+    pub seconds: f64,
+    pub stdout_tail: String,
+    pub stderr_tail: String,
+    /// Files present in the app folder after the run.
+    pub files: Vec<String>,
+}
+
+/// A coding agent.
+pub trait Agent: Send + Sync {
+    fn name(&self) -> &str;
+    fn available(&self) -> bool;
+    /// Run the agent in `workdir` with `prompt`.
+    fn run(&self, workdir: &Path, prompt: &str) -> anyhow::Result<BuildOutput>;
+}
+
+/// Claude Code. Uses the `claude` binary already signed in on this machine.
+#[derive(Debug, Clone)]
+pub struct ClaudeCode {
+    pub binary: String,
+    pub extra_args: Vec<String>,
+}
+
+impl Default for ClaudeCode {
+    fn default() -> Self {
+        ClaudeCode {
+            binary: std::env::var("AYSAR_CLAUDE_BIN").unwrap_or_else(|_| "claude".into()),
+            extra_args: std::env::var("AYSAR_CLAUDE_ARGS")
+                .map(|s| s.split_whitespace().map(|x| x.to_string()).collect())
+                .unwrap_or_else(|_| vec!["--permission-mode".into(), "acceptEdits".into()]),
+        }
+    }
+}
+
+impl Agent for ClaudeCode {
+    fn name(&self) -> &str {
+        "claude-code"
+    }
+    fn available(&self) -> bool {
+        which(&self.binary)
+    }
+    fn run(&self, workdir: &Path, prompt: &str) -> anyhow::Result<BuildOutput> {
+        let mut cmd = Command::new(&self.binary);
+        cmd.current_dir(workdir).arg("-p").arg(prompt).args(&self.extra_args);
+        run_command(self.name(), cmd, workdir)
+    }
+}
+
+/// OpenAI Codex CLI.
+#[derive(Debug, Clone)]
+pub struct Codex {
+    pub binary: String,
+    pub extra_args: Vec<String>,
+}
+
+impl Default for Codex {
+    fn default() -> Self {
+        Codex {
+            binary: std::env::var("AYSAR_CODEX_BIN").unwrap_or_else(|_| "codex".into()),
+            extra_args: std::env::var("AYSAR_CODEX_ARGS")
+                .map(|s| s.split_whitespace().map(|x| x.to_string()).collect())
+                .unwrap_or_else(|_| vec!["--full-auto".into()]),
+        }
+    }
+}
+
+impl Agent for Codex {
+    fn name(&self) -> &str {
+        "codex"
+    }
+    fn available(&self) -> bool {
+        which(&self.binary)
+    }
+    fn run(&self, workdir: &Path, prompt: &str) -> anyhow::Result<BuildOutput> {
+        let mut cmd = Command::new(&self.binary);
+        cmd.current_dir(workdir).arg("exec").args(&self.extra_args).arg(prompt);
+        run_command(self.name(), cmd, workdir)
+    }
+}
+
+/// Any command. `{prompt}` is replaced with the prompt text, `{prompt_file}`
+/// with a path to a file containing it. Example:
+/// `aider --message-file {prompt_file} --yes`.
+#[derive(Debug, Clone)]
+pub struct Script {
+    pub label: String,
+    pub template: String,
+}
+
+impl Agent for Script {
+    fn name(&self) -> &str {
+        &self.label
+    }
+    fn available(&self) -> bool {
+        self.template.split_whitespace().next().map(which).unwrap_or(false)
+    }
+    fn run(&self, workdir: &Path, prompt: &str) -> anyhow::Result<BuildOutput> {
+        let prompt_file = workdir.join(".aysar-prompt.md");
+        fs::write(&prompt_file, prompt)?;
+        let parts: Vec<String> = shell_split(&self.template)
+            .into_iter()
+            .map(|p| p.replace("{prompt_file}", &prompt_file.display().to_string()).replace("{prompt}", prompt))
+            .collect();
+        let (bin, rest) = parts.split_first().ok_or_else(|| anyhow::anyhow!("empty agent template"))?;
+        let mut cmd = Command::new(bin);
+        cmd.current_dir(workdir).args(rest);
+        let out = run_command(&self.label, cmd, workdir);
+        let _ = fs::remove_file(&prompt_file);
+        out
+    }
+}
+
+/// A dry-run agent that writes the prompt to `BUILD-PROMPT.md` and does
+/// nothing else. Lets the whole pipeline run with no AI installed.
+#[derive(Debug, Default, Clone)]
+pub struct DryRun;
+
+impl Agent for DryRun {
+    fn name(&self) -> &str {
+        "dry-run"
+    }
+    fn available(&self) -> bool {
+        true
+    }
+    fn run(&self, workdir: &Path, prompt: &str) -> anyhow::Result<BuildOutput> {
+        fs::create_dir_all(workdir)?;
+        fs::write(workdir.join("BUILD-PROMPT.md"), prompt)?;
+        Ok(BuildOutput {
+            agent: "dry-run".into(),
+            ok: true,
+            seconds: 0.0,
+            stdout_tail: "Dry run: prompt written to app/BUILD-PROMPT.md. Hand it to any coding agent.".into(),
+            stderr_tail: String::new(),
+            files: list_files(workdir),
+        })
+    }
+}
+
+/// Choose an agent by name, or the best available one.
+pub fn select(name: Option<&str>) -> anyhow::Result<Box<dyn Agent>> {
+    match name.map(|s| s.to_ascii_lowercase()).as_deref() {
+        None | Some("auto") => {
+            let c = ClaudeCode::default();
+            if c.available() {
+                return Ok(Box::new(c));
+            }
+            let x = Codex::default();
+            if x.available() {
+                return Ok(Box::new(x));
+            }
+            Ok(Box::new(DryRun))
+        }
+        Some("claude" | "claude-code") => Ok(Box::new(ClaudeCode::default())),
+        Some("codex") => Ok(Box::new(Codex::default())),
+        Some("dry-run" | "none") => Ok(Box::new(DryRun)),
+        Some(other) => {
+            if other.contains(' ') || other.contains("{prompt") {
+                Ok(Box::new(Script { label: "script".into(), template: other.to_string() }))
+            } else {
+                anyhow::bail!(
+                    "unknown agent `{other}`; use claude-code, codex, dry-run, or a command template with {{prompt}}"
+                )
+            }
+        }
+    }
+}
+
+/// All built-in agents and whether each is installed.
+pub fn status() -> Vec<(String, bool)> {
+    vec![
+        ("claude-code".into(), ClaudeCode::default().available()),
+        ("codex".into(), Codex::default().available()),
+        ("dry-run".into(), true),
+    ]
+}
+
+fn run_command(agent: &str, mut cmd: Command, workdir: &Path) -> anyhow::Result<BuildOutput> {
+    fs::create_dir_all(workdir)?;
+    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let start = Instant::now();
+    let out = cmd.output().map_err(|e| anyhow::anyhow!("could not start {agent}: {e}"))?;
+    Ok(BuildOutput {
+        agent: agent.into(),
+        ok: out.status.success(),
+        seconds: start.elapsed().as_secs_f64(),
+        stdout_tail: tail(&String::from_utf8_lossy(&out.stdout), 4000),
+        stderr_tail: tail(&String::from_utf8_lossy(&out.stderr), 2000),
+        files: list_files(workdir),
+    })
+}
+
+/// List files under a folder (relative paths, skipping heavy dirs).
+pub fn list_files(root: &Path) -> Vec<String> {
+    let mut out = Vec::new();
+    fn walk(dir: &Path, root: &Path, out: &mut Vec<String>, depth: usize) {
+        if depth > 5 || out.len() > 500 {
+            return;
+        }
+        if let Ok(rd) = fs::read_dir(dir) {
+            for e in rd.flatten() {
+                let p = e.path();
+                let name = e.file_name().to_string_lossy().to_string();
+                if name.starts_with('.') || name == "node_modules" || name == "target" || name == ".git" {
+                    continue;
+                }
+                if p.is_dir() {
+                    walk(&p, root, out, depth + 1);
+                } else {
+                    out.push(p.strip_prefix(root).unwrap_or(&p).to_string_lossy().replace('\\', "/"));
+                }
+            }
+        }
+    }
+    walk(root, root, &mut out, 0);
+    out.sort();
+    out
+}
+
+fn which(bin: &str) -> bool {
+    if bin.contains('/') || bin.contains('\\') {
+        return Path::new(bin).exists();
+    }
+    let Some(path) = std::env::var_os("PATH") else {
+        return false;
+    };
+    let exts: Vec<String> =
+        if cfg!(windows) { vec!["".into(), ".exe".into(), ".cmd".into(), ".bat".into()] } else { vec!["".into()] };
+    std::env::split_paths(&path).any(|dir| exts.iter().any(|e| dir.join(format!("{bin}{e}")).is_file()))
+}
+
+fn tail(s: &str, max: usize) -> String {
+    if s.len() <= max {
+        s.to_string()
+    } else {
+        let mut start = s.len() - max;
+        while !s.is_char_boundary(start) {
+            start += 1;
+        }
+        format!("…{}", &s[start..])
+    }
+}
+
+/// Minimal shell-like splitting: spaces separate, quotes group.
+fn shell_split(s: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    let mut quote: Option<char> = None;
+    for ch in s.chars() {
+        match (quote, ch) {
+            (Some(q), c) if c == q => quote = None,
+            (Some(_), c) => cur.push(c),
+            (None, '"' | '\'') => quote = Some(ch),
+            (None, c) if c.is_whitespace() => {
+                if !cur.is_empty() {
+                    out.push(std::mem::take(&mut cur));
+                }
+            }
+            (None, c) => cur.push(c),
+        }
+    }
+    if !cur.is_empty() {
+        out.push(cur);
+    }
+    out
+}
+
+#[allow(dead_code)]
+fn _unused(_: PathBuf) {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn split() {
+        assert_eq!(
+            shell_split(r#"aider --message "hi there" {prompt_file}"#),
+            vec!["aider", "--message", "hi there", "{prompt_file}"]
+        );
+    }
+
+    #[test]
+    fn dry_run_writes_prompt() {
+        let dir = std::env::temp_dir().join(format!("aysar-dry-{}", std::process::id()));
+        let out = DryRun.run(&dir, "build it").unwrap();
+        assert!(out.ok);
+        assert!(dir.join("BUILD-PROMPT.md").exists());
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn select_unknown_errors() {
+        assert!(select(Some("nope")).is_err());
+        assert!(select(Some("dry-run")).is_ok());
+    }
+}

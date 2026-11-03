@@ -1,0 +1,18 @@
+[package]
+name = "aysar-capture"
+description = "Observe a target: websites over HTTP and local HTML, respecting Clean room / Deep mode"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+aysar-core.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+ureq.workspace = true
+scraper.workspace = true
+url.workspace = true

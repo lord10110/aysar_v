@@ -1,0 +1,29 @@
+[package]
+name = "aysar-cli"
+description = "Aysar: see how any software works, then build your own — command line"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "aysar"
+path = "src/main.rs"
+
+[dependencies]
+aysar-core.workspace = true
+aysar-capture.workspace = true
+aysar-analysis.workspace = true
+aysar-spec.workspace = true
+aysar-build.workspace = true
+aysar-verify.workspace = true
+aysar-orchestrator.workspace = true
+aysar-mcp.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+serde_json.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
