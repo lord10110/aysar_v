@@ -37,7 +37,7 @@ Tools like [Craft Anything](https://github.com/storytold/craft-anything) proved 
 Requires Rust 1.80+. For screenshots, measured styles, visual and behaviour checks, a Chrome or Chromium on the machine (found automatically; or set `AYSAR_CHROME`). Everything else works without it.
 
 ```bash
-git clone https://github.com/aysar-dev/aysar && cd aysar
+git clone https://github.com/lord10110/aysar_v && cd aysar
 cargo install --path apps/aysar-cli      # installs `aysar`
 aysar doctor                             # what's installed, where projects go
 aysar ui                                 # the dashboard, on 127.0.0.1:7331

@@ -6,7 +6,7 @@ Thanks for helping. Aysar is small on purpose: one trait per boundary, one file 
 
 ```bash
 rustup update
-git clone https://github.com/aysar-dev/aysar && cd aysar
+git clone https://github.com/lord10110/aysar_v && cd aysar
 cargo build
 cargo test
 cargo clippy --all-targets -- -D warnings

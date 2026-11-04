@@ -31,7 +31,7 @@
 يتطلب Rust 1.80 أو أحدث. للقطات الشاشة والقياسات والفحص البصري والسلوكي يلزم Chrome أو Chromium على الجهاز (يُكتشف تلقائيًا، أو عيّن `AYSAR_CHROME`). كل ما عداه يعمل بدونه.
 
 ```bash
-git clone https://github.com/aysar-dev/aysar && cd aysar
+git clone https://github.com/lord10110/aysar_v && cd aysar
 cargo install --path apps/aysar-cli      # يثبّت الأمر `aysar`
 aysar doctor                             # ما المثبّت، وأين تذهب المشاريع
 aysar ui                                 # لوحة التحكم على 127.0.0.1:7331

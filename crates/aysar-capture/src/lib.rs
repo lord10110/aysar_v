@@ -41,7 +41,7 @@ impl Default for CaptureOptions {
             mode: Mode::CleanRoom,
             max_pages: 5,
             raw_dir: None,
-            user_agent: format!("aysar/{} (+https://github.com/aysar-dev/aysar)", env!("CARGO_PKG_VERSION")),
+            user_agent: format!("aysar/{} (+https://github.com/lord10110/aysar_v)", env!("CARGO_PKG_VERSION")),
             timeout_secs: 20,
             delay_ms: 300,
         }
