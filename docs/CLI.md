@@ -25,7 +25,7 @@ Global flags (any command): `--deep` / `--clean-room` (mode), `--no-render` (ski
 
 | Option | Meaning | Default |
 |---|---|---|
-| `--agent NAME` | `claude-code`, `codex`, `aider`, `gemini`, `opencode`, `goose`, `qwen`, `dry-run`, or a command template with `{prompt}` / `{prompt_file}` | config `agent`, else the first installed |
+| `--agent NAME` | `api` (built-in, any OpenAI-compatible model incl. Ollama), `claude-code`, `codex`, `aider`, `gemini`, `opencode`, `goose`, `qwen`, `dry-run`, or a command template with `{prompt}` / `{prompt_file}` | config `agent`, else the first available (coding agents first, then `api` if its server answers) |
 | `--agents a,b,c` | Candidate builds; the best check wins and lands in `app/` | — |
 | `--rounds N` | Refinement rounds | config `rounds`, else 2 |
 | `--target-score S` | Stop refining at this score | config `target_score`, else 85 |
@@ -45,7 +45,7 @@ Global flags (any command): `--deep` / `--clean-room` (mode), `--no-render` (ski
 | `AYSAR_CLAUDE_BIN`, `AYSAR_CLAUDE_ARGS` | Claude Code binary and extra args (default `--permission-mode acceptEdits`) |
 | `AYSAR_CODEX_BIN`, `AYSAR_CODEX_ARGS` | Codex binary and extra args (default `--full-auto`) |
 | `AYSAR_AGENT_AIDER`, `AYSAR_AGENT_GEMINI`, … | Replace a preset's command template |
-| `AYSAR_LLM_URL`, `AYSAR_LLM_MODEL`, `AYSAR_LLM_KEY` | For `aysar enrich` |
+| `AYSAR_LLM_URL`, `AYSAR_LLM_MODEL`, `AYSAR_LLM_KEY` | For the built-in `api` builder and `aysar enrich` (default `http://localhost:11434/v1`, `qwen2.5-coder:7b`) |
 | `AYSAR_CRAFT_ANYTHING_BIN` | Path of `craft-anything-cli` for Deep-mode binary analysis |
 
 ## Exit codes

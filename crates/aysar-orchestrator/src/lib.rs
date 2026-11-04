@@ -558,7 +558,7 @@ pub fn rebuild(project: &mut Project, opts: &RebuildOptions, rep: &dyn Reporter)
     for round in first_round..=opts.rounds.max(first_round) {
         let out = build(project, winner.as_deref(), round, last.as_ref(), rep)?;
         if out.agent == "dry-run" {
-            rep.say("Dry run: no agent installed. The prompt is in app/BUILD-PROMPT.md; run `aysar build` after installing Claude Code or Codex.");
+            rep.say("Dry run: no builder available. The prompt is in app/BUILD-PROMPT.md. Easiest ways to get a builder: install Ollama and run `ollama pull qwen2.5-coder:7b` (fully local, no account), or sign in to Claude Code, Codex or Gemini CLI. Then `aysar build <project>`.");
             return Ok(None);
         }
         let report = check(project, rep)?;

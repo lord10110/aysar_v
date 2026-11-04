@@ -9,9 +9,9 @@
 //! target_score = 85
 //! max_pages = 5
 //!
-//! [llm]                           # for `aysar enrich`; any OpenAI-compatible server
+//! [llm]                           # for the built-in `api` builder and `aysar enrich`; any OpenAI-compatible server
 //! url = "http://localhost:11434/v1"
-//! model = "llama3.1"
+//! model = "qwen2.5-coder:7b"
 //! key = ""
 //! ```
 
@@ -99,6 +99,15 @@ impl Config {
 
     /// Push file settings into the environment the lower crates read.
     pub fn export_env(&self) {
+        for (k, v) in
+            [("AYSAR_LLM_URL", &self.llm.url), ("AYSAR_LLM_MODEL", &self.llm.model), ("AYSAR_LLM_KEY", &self.llm.key)]
+        {
+            if let Some(v) = v {
+                if std::env::var_os(k).is_none() {
+                    std::env::set_var(k, v);
+                }
+            }
+        }
         if let Some(c) = &self.chrome {
             if std::env::var_os("AYSAR_CHROME").is_none() {
                 std::env::set_var("AYSAR_CHROME", c);

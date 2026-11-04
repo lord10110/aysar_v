@@ -490,6 +490,9 @@ fn known_agent(a: &str) -> bool {
         || a == "codex"
         || a == "dry-run"
         || a == "none"
+        || a == "api"
+        || a == "ollama"
+        || a == "local"
         || aysar_build::PRESETS.iter().any(|(n, _, _)| *n == a)
 }
 

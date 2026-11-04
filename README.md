@@ -82,9 +82,25 @@ The full command reference is in [docs/CLI.md](docs/CLI.md).
 - **Clean room** (default): Aysar reads only what a visitor sees — titles, headings, links, forms, visible text, landmarks, image counts, and what the rendered page looks like and does (screenshots, measured colours, fonts, spacing, layout, working links, form validation, hover and focus states). Stylesheets, scripts, source and binaries are **not** read. Tools that would look inside refuse and tell you how to switch.
 - **Deep** (`--deep`): everything is read, for your private use — styles, scripts, raw HTML, and binaries through the analysis engine.
 
-### Coding agents
+### Builders
 
-Build needs a coding agent on your machine. Aysar runs *your* agent with *your* sign-in and never handles your account.
+Aysar has no AI of its own; the Build step needs a *builder*. Three ways, from easiest to most capable:
+
+**1. The built-in `api` builder — any model, including a fully local one.** No extra program. Point it at any OpenAI-compatible server and it asks the model for the whole project as files.
+
+```bash
+# Fully local, no account: install Ollama (https://ollama.com), then
+ollama pull qwen2.5-coder:7b
+aysar rebuild https://example.com "Recreate this website" --agent api
+
+# Or a hosted model (OpenAI, OpenRouter, Groq, …)
+AYSAR_LLM_URL=https://openrouter.ai/api/v1 AYSAR_LLM_MODEL=qwen/qwen-2.5-coder-32b-instruct AYSAR_LLM_KEY=sk-… \
+  aysar rebuild https://example.com "Recreate this website" --agent api
+```
+
+Put these in `aysar config --init` under `[llm]` to make `api` the default. A 7B coding model handles small sites; 14B–32B do noticeably better. The built-in builder is best for websites and small apps; it cannot run commands or tests itself, so for games and larger apps a coding agent (below) wins.
+
+**2. A coding agent on your machine.** Aysar runs *your* agent with *your* sign-in and never handles your account.
 
 | Agent | Command Aysar runs | Status |
 |---|---|---|
@@ -96,7 +112,10 @@ Build needs a coding agent on your machine. Aysar runs *your* agent with *your* 
 | `aider` | `aider --message-file {prompt_file} --yes --no-git --no-auto-commits` | from the docs (needs Python ≤ 3.12 to install) |
 | `goose` | `goose run --text <prompt>` | from the docs |
 | anything | `--agent "your-cmd --file {prompt_file}"` | — |
+| `api` | built-in; `AYSAR_LLM_URL` / `AYSAR_LLM_MODEL` / `AYSAR_LLM_KEY` | verified against an OpenAI-compatible mock server; the file protocol is plain text so small local models follow it |
 | `dry-run` | writes `app/BUILD-PROMPT.md` and stops | verified |
+
+**3. No builder at all** — `dry-run` writes the complete prompt to `app/BUILD-PROMPT.md`; paste it into any chat model and drop the files it returns into `app/`, then `aysar check`.
 
 "Flags verified" means we installed the tool and ran the exact command: it parses and gets as far as asking for your account. Override any with `AYSAR_AGENT_<NAME>`; `aysar doctor` shows which are installed and the verification level of each.
 

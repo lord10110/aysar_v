@@ -11,7 +11,10 @@
 //! The agent is always run **inside the project's `app/` folder** and never
 //! sees the original target's files: it works from the spec and the prompt.
 
+pub mod api;
 pub mod prompt;
+
+pub use api::ApiAgent;
 
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -252,10 +255,15 @@ pub fn select(name: Option<&str>) -> anyhow::Result<Box<dyn Agent>> {
                     }
                 }
             }
+            let api = ApiAgent::default();
+            if api.available() {
+                return Ok(Box::new(api));
+            }
             Ok(Box::new(DryRun))
         }
         Some("claude" | "claude-code") => Ok(Box::new(ClaudeCode::default())),
         Some("codex") => Ok(Box::new(Codex::default())),
+        Some("api" | "ollama" | "local" | "llm") => Ok(Box::new(ApiAgent::default())),
         Some("dry-run" | "none") => Ok(Box::new(DryRun)),
         Some(other) => {
             if let Some(p) = preset(other) {
@@ -266,7 +274,7 @@ pub fn select(name: Option<&str>) -> anyhow::Result<Box<dyn Agent>> {
             } else {
                 let names: Vec<&str> = PRESETS.iter().map(|(n, _, _)| *n).collect();
                 anyhow::bail!(
-                    "unknown agent `{other}`; use claude-code, codex, {}, dry-run, or a command template with {{prompt}} / {{prompt_file}}",
+                    "unknown agent `{other}`; use claude-code, codex, {}, api (any OpenAI-compatible model, e.g. Ollama), dry-run, or a command template with {{prompt}} / {{prompt_file}}",
                     names.join(", ")
                 )
             }
@@ -315,6 +323,13 @@ pub fn status_detailed() -> Vec<AgentStatus> {
             });
         }
     }
+    let api = ApiAgent::default();
+    out.push(AgentStatus {
+        name: "api".into(),
+        installed: api.available(),
+        verified: Verified::Live,
+        command: format!("built-in: {} at {} (AYSAR_LLM_URL / AYSAR_LLM_MODEL / AYSAR_LLM_KEY)", api.model, api.url),
+    });
     out.push(AgentStatus {
         name: "dry-run".into(),
         installed: true,
@@ -397,6 +412,11 @@ fn which(bin: &str) -> bool {
     let exts: Vec<String> =
         if cfg!(windows) { vec!["".into(), ".exe".into(), ".cmd".into(), ".bat".into()] } else { vec!["".into()] };
     std::env::split_paths(&path).any(|dir| exts.iter().any(|e| dir.join(format!("{bin}{e}")).is_file()))
+}
+
+/// Last `max` bytes of a string, on a char boundary.
+pub fn tail_of(s: &str, max: usize) -> String {
+    tail(s, max)
 }
 
 fn tail(s: &str, max: usize) -> String {

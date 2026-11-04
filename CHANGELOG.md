@@ -2,6 +2,12 @@
 
 All notable changes to Aysar. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/).
 
+## [0.2.2] — 2026-11-04
+
+### Added
+- **Built-in `api` builder**: no coding-agent program needed. Any OpenAI-compatible endpoint — Ollama, LM Studio, llama.cpp locally, or OpenAI / OpenRouter / Groq hosted — returns the project as `<<<FILE path>>> … <<<END>>>` blocks that Aysar writes into `app/`; refinement rounds resend the current files with the check's mismatches. Paths are validated; stray code fences are stripped. `--agent api`, or `agent = "api"` plus `[llm]` in the config. Picked automatically when no coding agent is installed and the model server answers.
+- `aysar doctor` explains the three ways to get a builder when none is found.
+
 ## [0.2.1] — 2026-11-04
 
 ### Fixed

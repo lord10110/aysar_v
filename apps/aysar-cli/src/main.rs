@@ -64,7 +64,7 @@ enum Cmd {
         target: String,
         /// What you want, in plain words.
         request: String,
-        /// Coding agent: claude-code, codex, aider, gemini, opencode, goose, dry-run, or a command template with {prompt_file}.
+        /// Builder: api (built-in; any OpenAI-compatible model incl. Ollama), claude-code, codex, aider, gemini, opencode, goose, qwen, dry-run, or a command template with {prompt_file}.
         #[arg(long)]
         agent: Option<String>,
         /// Several agents, comma-separated: each builds a candidate and the best one wins.
@@ -233,7 +233,11 @@ fn run() -> anyhow::Result<()> {
             println!("Mode: {mode}");
             let any_agent = aysar_build::status().iter().any(|(n, ok)| *ok && n != "dry-run");
             if !any_agent {
-                println!("\nNo coding agent found. Building will run in dry-run mode and write the prompt to app/BUILD-PROMPT.md.");
+                println!("\nNo builder found, so `rebuild` runs in dry-run mode (it writes the prompt to app/BUILD-PROMPT.md).");
+                println!("Pick one:");
+                println!("  • Fully local, no account: install Ollama (https://ollama.com), run `ollama pull qwen2.5-coder:7b`, then `aysar rebuild … --agent api`.");
+                println!("  • Any hosted model: set AYSAR_LLM_URL, AYSAR_LLM_MODEL and AYSAR_LLM_KEY (OpenAI, OpenRouter, Groq, …), then `--agent api`.");
+                println!("  • A coding agent: Claude Code (`npm i -g @anthropic-ai/claude-code`), Codex, or Gemini CLI (free tier), signed in.");
             }
         }
 
@@ -481,15 +485,15 @@ fn open_browser(url: &str) {
 const STARTER_CONFIG: &str = r#"# Aysar configuration. Every line is optional; flags and AYSAR_* variables override it.
 
 # projects_dir = "/home/me/Documents/Aysar"
-# agent = "claude-code"        # claude-code | codex | aider | gemini | opencode | goose | dry-run | "cmd {prompt_file}"
+# agent = "api"                # api (built-in, uses [llm] below) | claude-code | codex | aider | gemini | opencode | goose | qwen | dry-run | "cmd {prompt_file}"
 # chrome = "/usr/bin/chromium"  # found automatically when unset
 # rounds = 2
 # target_score = 85
 # max_pages = 5
 
-[llm]                           # for `aysar enrich`: any OpenAI-compatible server
+[llm]                           # for the built-in `api` builder and `aysar enrich`: any OpenAI-compatible server
 # url = "http://localhost:11434/v1"
-# model = "llama3.1"
+# model = "qwen2.5-coder:7b"   # a coding model; qwen2.5-coder:14b or deepseek-coder-v2 if you have the memory
 # key = ""
 "#;
 
