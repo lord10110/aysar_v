@@ -2,6 +2,15 @@
 
 All notable changes to Aysar. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/).
 
+## [0.2.1] — 2026-11-04
+
+### Fixed
+- Linux CI and locked-down kernels: Chromium's sandboxed launch is verified by actually rendering a page, with a no-sandbox fallback; `AYSAR_CHROME_NO_SANDBOX=1` skips the first attempt. Ubuntu CI went from 29 minutes to under 8.
+- Release builds the macOS Intel binary on the Apple-silicon runner (cross-compiled) instead of waiting for scarce `macos-13` runners.
+
+### Added
+- `AYSAR_RENDER_TRACE=1` prints the duration of each browser step.
+
 ## [0.2.0] — 2026-11-04
 
 ### Verified live
