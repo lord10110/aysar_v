@@ -33,7 +33,7 @@ jobs:
           mkdir -p smoke/site && echo '<html><head><title>T</title></head><body><main><h1>Hi</h1></main></body></html>' > smoke/site/index.html
           ./target/release/aysar rebuild ./smoke/site "Recreate this" --agent dry-run --projects-dir smoke/projects --kind website
           ./target/release/aysar status smoke/projects/site
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: aysar-${{ matrix.os }}
           path: |
