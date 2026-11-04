@@ -25,6 +25,9 @@ pub struct PageReport {
     /// Visual similarity 0–1 when both sides were rendered.
     #[serde(default)]
     pub visual: Option<f32>,
+    /// Behaviour similarity 0–1 when both sides were probed.
+    #[serde(default)]
+    pub behavior: Option<f32>,
     pub score: f32,
     pub mismatches: Vec<String>,
 }
@@ -40,7 +43,7 @@ pub struct Report {
     pub content: f32,
     /// 0–100 when both captures have rendered viewports.
     pub visual: Option<f32>,
-    /// Reserved: `None` until behaviour checks are wired in.
+    /// 0–100 when both captures carry behaviour probes (links, forms, states).
     pub behavior: Option<f32>,
     pub pages: Vec<PageReport>,
     pub mismatches: Vec<String>,
@@ -60,11 +63,11 @@ impl Report {
         if let Some(b) = self.behavior {
             s.push_str(&format!(" · Behaviour: {b:.0}"));
         }
-        s.push_str("\n\n## Pages\n\n| Page | Score | Title | Headings | Landmarks | Nav | Forms | Content | Visual |\n|---|---|---|---|---|---|---|---|---|\n");
+        s.push_str("\n\n## Pages\n\n| Page | Score | Title | Headings | Landmarks | Nav | Forms | Content | Visual | Behaviour |\n|---|---|---|---|---|---|---|---|---|---|\n");
         for p in &self.pages {
             if p.found {
                 s.push_str(&format!(
-                    "| `{}` | {:.0} | {:.0} | {:.0} | {:.0} | {:.0} | {:.0} | {:.0} | {} |\n",
+                    "| `{}` | {:.0} | {:.0} | {:.0} | {:.0} | {:.0} | {:.0} | {:.0} | {} | {} |\n",
                     p.path,
                     p.score,
                     p.title_match * 100.0,
@@ -73,10 +76,11 @@ impl Report {
                     p.navigation * 100.0,
                     p.forms * 100.0,
                     p.content_shape * 100.0,
-                    p.visual.map(|v| format!("{:.0}", v * 100.0)).unwrap_or_else(|| "–".into())
+                    p.visual.map(|v| format!("{:.0}", v * 100.0)).unwrap_or_else(|| "–".into()),
+                    p.behavior.map(|v| format!("{:.0}", v * 100.0)).unwrap_or_else(|| "–".into())
                 ));
             } else {
-                s.push_str(&format!("| `{}` | 0 | missing | | | | | | |\n", p.path));
+                s.push_str(&format!("| `{}` | 0 | missing | | | | | | | |\n", p.path));
             }
         }
         if !self.mismatches.is_empty() {
@@ -101,6 +105,28 @@ impl Report {
 pub const WEIGHT_STRUCTURE_WITH_VISUAL: f32 = 0.40;
 pub const WEIGHT_CONTENT_WITH_VISUAL: f32 = 0.10;
 pub const WEIGHT_VISUAL: f32 = 0.50;
+/// Weights when visual *and* behaviour legs are present.
+pub const WEIGHT_STRUCTURE_FULL: f32 = 0.35;
+pub const WEIGHT_CONTENT_FULL: f32 = 0.10;
+pub const WEIGHT_VISUAL_FULL: f32 = 0.35;
+pub const WEIGHT_BEHAVIOR: f32 = 0.20;
+
+/// Blend the legs that are present into one 0–1 score.
+pub fn blend(structure: f32, content: f32, visual: Option<f32>, behavior: Option<f32>) -> f32 {
+    match (visual, behavior) {
+        (Some(v), Some(b)) => {
+            structure * WEIGHT_STRUCTURE_FULL
+                + content * WEIGHT_CONTENT_FULL
+                + v * WEIGHT_VISUAL_FULL
+                + b * WEIGHT_BEHAVIOR
+        }
+        (Some(v), None) => {
+            structure * WEIGHT_STRUCTURE_WITH_VISUAL + content * WEIGHT_CONTENT_WITH_VISUAL + v * WEIGHT_VISUAL
+        }
+        (None, Some(b)) => structure * 0.6 + content * 0.2 + b * 0.2,
+        (None, None) => structure * 0.7 + content * 0.3,
+    }
+}
 
 /// Compare a build capture against the original capture.
 pub fn compare(original: &Capture, build: &Capture) -> Report {
@@ -122,6 +148,7 @@ pub fn compare(original: &Capture, build: &Capture) -> Report {
                     forms: 0.0,
                     content_shape: 0.0,
                     visual: None,
+                    behavior: None,
                     score: 0.0,
                     mismatches: vec![],
                 });
@@ -155,6 +182,13 @@ pub fn compare(original: &Capture, build: &Capture) -> Report {
     } else {
         None
     };
+    let any_probed = original.pages.iter().any(|p| p.behavior.is_some());
+    let behavior = if any_probed {
+        let total: f32 = pages.iter().map(|p| p.behavior.unwrap_or(0.0)).sum();
+        Some(total / n * 100.0)
+    } else {
+        None
+    };
     let score = if original.pages.is_empty() {
         // Nothing to compare with: report what exists.
         if build.pages.is_empty() {
@@ -163,15 +197,16 @@ pub fn compare(original: &Capture, build: &Capture) -> Report {
             50.0
         }
     } else {
-        match visual {
-            Some(v) => {
-                structure * WEIGHT_STRUCTURE_WITH_VISUAL + content * WEIGHT_CONTENT_WITH_VISUAL + v * WEIGHT_VISUAL
-            }
-            None => structure * 0.7 + content * 0.3,
-        }
+        blend(structure / 100.0, content / 100.0, visual.map(|v| v / 100.0), behavior.map(|b| b / 100.0)) * 100.0
     };
 
-    let mut limitations = vec!["Behaviour (clicking, submitting, navigating) is not checked yet.".into()];
+    let mut limitations: Vec<String> = Vec::new();
+    if behavior.is_none() {
+        limitations.push(
+            "Behaviour (links, forms, hover/focus) was not checked: the original was not probed in a browser.".into(),
+        );
+    }
+    limitations.push("Real user journeys (multi-step flows, logins, payments) are not exercised; only links, form validation and state styles.".into());
     if visual.is_none() {
         limitations.push(
             "Visual similarity was not checked: no renderer (Chromium) was available when the original was studied."
@@ -192,7 +227,7 @@ pub fn compare(original: &Capture, build: &Capture) -> Report {
         structure,
         content,
         visual,
-        behavior: None,
+        behavior,
         pages,
         mismatches,
         limitations,
@@ -310,14 +345,9 @@ fn compare_page(o: &PageCapture, b: &PageCapture) -> PageReport {
     }
 
     let visual = compare_visual(o, b, &mut mm);
+    let behavior = compare_behavior(o, b, &mut mm);
     let structural = (title_match + headings + landmarks + navigation + forms) / 5.0;
-    let score = match visual {
-        Some(v) => {
-            (structural * WEIGHT_STRUCTURE_WITH_VISUAL + content_shape * WEIGHT_CONTENT_WITH_VISUAL + v * WEIGHT_VISUAL)
-                * 100.0
-        }
-        None => (structural * 0.7 + content_shape * 0.3) * 100.0,
-    };
+    let score = blend(structural, content_shape, visual, behavior) * 100.0;
     PageReport {
         path: o.path.clone(),
         found: true,
@@ -328,9 +358,137 @@ fn compare_page(o: &PageCapture, b: &PageCapture) -> PageReport {
         forms,
         content_shape,
         visual,
+        behavior,
         score,
         mismatches: mm,
     }
+}
+
+/// Behaviour leg for one page: do the build's links work as the original's
+/// did, do its forms validate the same way, does it have hover/focus states
+/// where the original has them.
+fn compare_behavior(o: &PageCapture, b: &PageCapture, mm: &mut Vec<String>) -> Option<f32> {
+    let ob = o.behavior.as_ref()?;
+    let Some(bb) = b.behavior.as_ref() else {
+        mm.push(format!(
+            "`{}`: the build could not be probed in a browser, so links, forms and states were not compared.",
+            o.path
+        ));
+        return Some(0.0);
+    };
+    let mut parts: Vec<f32> = Vec::new();
+
+    // Links: every link that worked in the original should exist and work in the build.
+    let working: Vec<&String> = ob.links.iter().filter(|(_, ok)| *ok).map(|(h, _)| h).collect();
+    if !working.is_empty() {
+        let mut ok = 0;
+        let mut broken = Vec::new();
+        let mut absent = 0usize;
+        for h in &working {
+            match bb.links.iter().find(|(x, _)| norm_path(x) == norm_path(h)) {
+                Some((_, true)) => ok += 1,
+                Some((_, false)) => broken.push((*h).clone()),
+                None => absent += 1,
+            }
+        }
+        let _ = absent;
+        parts.push(ok as f32 / working.len() as f32);
+        if !broken.is_empty() {
+            mm.push(format!(
+                "`{}`: these links are broken in the build: {}.",
+                o.path,
+                broken.iter().map(|s| format!("`{s}`")).collect::<Vec<_>>().join(", ")
+            ));
+        }
+    }
+    // Build-only broken links are a defect regardless of the original.
+    let build_broken: Vec<&String> = bb.links.iter().filter(|(_, ok)| !*ok).map(|(h, _)| h).collect();
+    if !build_broken.is_empty() {
+        parts.push((1.0 - build_broken.len() as f32 / bb.links.len().max(1) as f32).max(0.0));
+        if working.is_empty() || build_broken.iter().any(|h| !working.iter().any(|w| norm_path(w) == norm_path(h))) {
+            mm.push(format!(
+                "`{}`: links in the build that go nowhere: {}.",
+                o.path,
+                build_broken.iter().take(8).map(|s| format!("`{s}`")).collect::<Vec<_>>().join(", ")
+            ));
+        }
+    }
+
+    // Forms, in order.
+    for (i, of) in ob.forms.iter().enumerate() {
+        match bb.forms.get(i) {
+            None => parts.push(0.0),
+            Some(bf) => {
+                let mut f = 0.0;
+                let mut n = 0.0;
+                if of.required_fields > 0 && bf.required_fields < of.required_fields {
+                    n += 1.0;
+                    f += bf.required_fields as f32 / of.required_fields as f32;
+                    mm.push(format!(
+                        "`{}`: form {} marks {} field(s) as required; the original marks {}.",
+                        o.path,
+                        i + 1,
+                        bf.required_fields,
+                        of.required_fields
+                    ));
+                }
+                if of.required_fields > 0 {
+                    n += 1.0;
+                    if bf.blocks_empty_submit {
+                        f += 1.0;
+                    } else {
+                        mm.push(format!(
+                            "`{}`: form {} does not block an empty submit; the original requires {} field(s).",
+                            o.path,
+                            i + 1,
+                            of.required_fields
+                        ));
+                    }
+                }
+                if of.accepts_filled {
+                    n += 1.0;
+                    if bf.accepts_filled {
+                        f += 1.0;
+                    } else {
+                        mm.push(format!(
+                            "`{}`: form {} still reports invalid after every field is filled with a plausible value.",
+                            o.path,
+                            i + 1
+                        ));
+                    }
+                }
+                if of.has_submit {
+                    n += 1.0;
+                    if bf.has_submit {
+                        f += 1.0;
+                    } else {
+                        mm.push(format!("`{}`: form {} has no submit button.", o.path, i + 1));
+                    }
+                }
+                if n > 0.0 {
+                    parts.push(f / n);
+                }
+            }
+        }
+    }
+
+    // Hover / focus states.
+    for kind in &ob.hover_changes {
+        let has = bb.hover_changes.contains(kind);
+        parts.push(if has { 1.0 } else { 0.0 });
+        if !has {
+            mm.push(format!("`{}`: the original's `{}` changes on hover; the build's does not.", o.path, kind));
+        }
+    }
+    for kind in &ob.focus_changes {
+        let has = bb.focus_changes.contains(kind);
+        parts.push(if has { 1.0 } else { 0.5 });
+        if !has {
+            mm.push(format!("`{}`: the original's `{}` shows a focus style; the build's does not.", o.path, kind));
+        }
+    }
+
+    Some(if parts.is_empty() { 1.0 } else { parts.iter().sum::<f32>() / parts.len() as f32 })
 }
 
 /// Visual leg for one page: per width, blend the screenshot hash
@@ -679,6 +837,41 @@ mod tests {
         let r = compare(&cap(vec![o]), &cap(vec![unrendered]));
         assert_eq!(r.visual, Some(0.0));
         assert!(r.mismatches.iter().any(|m| m.contains("could not be rendered")));
+    }
+
+    #[test]
+    fn behavior_leg_scores_and_explains() {
+        use aysar_core::capture::{BehaviorProbe, FormProbe};
+        let probe = |ok: bool, blocks: bool, hover: bool| BehaviorProbe {
+            links: vec![("/about".into(), ok), ("/".into(), true)],
+            forms: vec![FormProbe {
+                required_fields: 1,
+                blocks_empty_submit: blocks,
+                accepts_filled: true,
+                has_submit: true,
+            }],
+            hover_changes: if hover { vec!["nav a".into()] } else { vec![] },
+            focus_changes: vec![],
+        };
+        let mut o = page("/", "Home", &[(1, "Hi")], &["/about"], 100);
+        o.behavior = Some(probe(true, true, true));
+        let mut same = o.clone();
+        same.behavior = Some(probe(true, true, true));
+        let r = compare(&cap(vec![o.clone()]), &cap(vec![same]));
+        assert_eq!(r.behavior, Some(100.0));
+
+        let mut bad = o.clone();
+        bad.behavior = Some(probe(false, false, false));
+        let r = compare(&cap(vec![o.clone()]), &cap(vec![bad]));
+        assert!(r.behavior.unwrap() < 50.0, "{}", r.behavior.unwrap());
+        assert!(r.mismatches.iter().any(|m| m.contains("broken in the build")), "{:?}", r.mismatches);
+        assert!(r.mismatches.iter().any(|m| m.contains("does not block an empty submit")));
+        assert!(r.mismatches.iter().any(|m| m.contains("changes on hover")));
+
+        let mut unprobed = o.clone();
+        unprobed.behavior = None;
+        let r = compare(&cap(vec![o]), &cap(vec![unprobed]));
+        assert_eq!(r.behavior, Some(0.0));
     }
 
     #[test]

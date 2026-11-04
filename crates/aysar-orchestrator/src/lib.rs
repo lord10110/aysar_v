@@ -274,6 +274,25 @@ pub fn render_capture(
                 }
                 page.viewports = r.viewports;
                 page.style = Some(r.style);
+                if let Some(b) = &r.behavior {
+                    let working = b.links.iter().filter(|l| l.1).count();
+                    ledger.record(
+                        EvidenceKind::Observation,
+                        format!(
+                            "probed {}: {}/{} links work, {} form(s), hover on {:?}, focus on {:?}",
+                            page.path,
+                            working,
+                            b.links.len(),
+                            b.forms.len(),
+                            b.hover_changes,
+                            b.focus_changes
+                        ),
+                        &url,
+                        1.0,
+                        vec![],
+                    )?;
+                }
+                page.behavior = r.behavior;
             }
             Err(e) => {
                 cap.limitations.push(format!("{}: could not render ({e})", page.path));
@@ -393,6 +412,7 @@ pub fn check(project: &mut Project, rep: &dyn Reporter) -> anyhow::Result<Report
     }
     let report = aysar_verify::compare(&original, &build_cap);
     let n = project.next_check_number();
+    write_diff_images(project, &original, &build_cap, n, rep);
     let json = project.checks_dir().join(format!("check-{n:03}.json"));
     let md = project.checks_dir().join(format!("check-{n:03}.md"));
     fs::write(&json, serde_json::to_string_pretty(&report)?)?;
@@ -419,6 +439,35 @@ pub fn check(project: &mut Project, rep: &dyn Reporter) -> anyhow::Result<Report
     project.state.score = Some(report.score);
     project.advance(Stage::Checked, format!("check {n}: {:.0}", report.score))?;
     Ok(report)
+}
+
+/// Original | build | difference pictures for every page and width that
+/// both sides rendered, into `checks/check-NNN-screenshots/`.
+fn write_diff_images(
+    project: &Project,
+    original: &aysar_core::capture::Capture,
+    build: &aysar_core::capture::Capture,
+    n: usize,
+    rep: &dyn Reporter,
+) {
+    let out_dir = project.checks_dir().join(format!("check-{n:03}-screenshots"));
+    let mut made = 0;
+    for op in &original.pages {
+        let Some(bp) = build.pages.iter().find(|p| p.path == op.path) else { continue };
+        for ov in &op.viewports {
+            let Some(bv) = bp.viewports.iter().find(|v| v.width == ov.width) else { continue };
+            let (Some(oa), Some(ba)) = (&ov.screenshot, &bv.screenshot) else { continue };
+            let a = project.capture_dir().join(oa);
+            let b = out_dir.join(ba);
+            let out = out_dir.join(format!("{}-{}-diff.png", slugify(&op.path), ov.width));
+            if aysar_render::diff::side_by_side(&a, &b, &out).is_ok() {
+                made += 1;
+            }
+        }
+    }
+    if made > 0 {
+        rep.say(&format!("  {made} side-by-side picture(s) → {}", out_dir.display()));
+    }
 }
 
 /// The whole loop.

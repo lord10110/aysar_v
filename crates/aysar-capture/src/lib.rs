@@ -12,6 +12,7 @@
 //!   stylesheets and scripts, and keeps the raw HTML under `capture/raw/`.
 
 pub mod html;
+pub mod robots;
 
 use aysar_core::capture::{Capture, PageCapture};
 use aysar_core::{Mode, Target};
@@ -30,6 +31,8 @@ pub struct CaptureOptions {
     pub raw_dir: Option<PathBuf>,
     pub user_agent: String,
     pub timeout_secs: u64,
+    /// Pause between requests to the same site, in milliseconds.
+    pub delay_ms: u64,
 }
 
 impl Default for CaptureOptions {
@@ -40,6 +43,7 @@ impl Default for CaptureOptions {
             raw_dir: None,
             user_agent: format!("aysar/{} (+https://github.com/aysar-dev/aysar)", env!("CARGO_PKG_VERSION")),
             timeout_secs: 20,
+            delay_ms: 300,
         }
     }
 }
@@ -74,6 +78,19 @@ pub fn capture_website(start: &str, opts: &CaptureOptions) -> anyhow::Result<Cap
     let mut pages = Vec::new();
     let mut limitations = Vec::new();
 
+    // Respect robots.txt for everyone (`User-agent: *`) and for us.
+    let robots = {
+        let mut u = start_url.clone();
+        u.set_path("/robots.txt");
+        u.set_query(None);
+        match agent.get(u.as_str()).call() {
+            Ok(r) if r.status() == 200 => robots::Rules::parse(&r.into_string().unwrap_or_default(), "aysar"),
+            _ => robots::Rules::default(),
+        }
+    };
+    let mut skipped_by_robots = 0usize;
+    let mut fetched = 0usize;
+
     while let Some(url) = queue.pop_front() {
         if pages.len() >= opts.max_pages {
             limitations.push(format!("Stopped after {} pages (max_pages); more pages exist.", opts.max_pages));
@@ -83,6 +100,15 @@ pub fn capture_website(start: &str, opts: &CaptureOptions) -> anyhow::Result<Cap
         if !seen.insert(key) {
             continue;
         }
+        if !robots.allows(url.path()) {
+            skipped_by_robots += 1;
+            continue;
+        }
+        if fetched > 0 {
+            // Polite: never hammer a site.
+            std::thread::sleep(std::time::Duration::from_millis(opts.delay_ms.max(robots.crawl_delay_ms())));
+        }
+        fetched += 1;
         let resp = match agent.get(url.as_str()).call() {
             Ok(r) => r,
             Err(ureq::Error::Status(code, _)) => {
@@ -125,10 +151,11 @@ pub fn capture_website(start: &str, opts: &CaptureOptions) -> anyhow::Result<Cap
         pages.push(page);
     }
 
+    if skipped_by_robots > 0 {
+        limitations.push(format!("{skipped_by_robots} page(s) were skipped because robots.txt disallows them."));
+    }
     if !opts.mode.is_deep() {
-        limitations.push(
-            "Clean room: stylesheets and scripts were not read; colours and fonts need a renderer (planned).".into(),
-        );
+        limitations.push("Clean room: stylesheets and scripts were not read; colours and fonts come from the renderer when one is available.".into());
     }
 
     Ok(Capture {

@@ -9,9 +9,11 @@
 //! sites and generated builds can be rendered with real `/path` links.
 
 pub mod dhash;
+pub mod diff;
+pub mod probe;
 pub mod server;
 
-use aysar_core::capture::{LayoutBox, StyleSample, Viewport};
+use aysar_core::capture::{BehaviorProbe, LayoutBox, StyleSample, Viewport};
 use headless_chrome::protocol::cdp::Page::CaptureScreenshotFormatOption;
 use headless_chrome::{Browser, LaunchOptions};
 use serde::Deserialize;
@@ -97,6 +99,8 @@ fn which(bin: &str) -> Option<PathBuf> {
 pub struct Rendered {
     pub viewports: Vec<Viewport>,
     pub style: StyleSample,
+    /// Links, forms and hover/focus states exercised at the widest viewport.
+    pub behavior: Option<BehaviorProbe>,
 }
 
 /// Options for rendering.
@@ -108,6 +112,8 @@ pub struct RenderOptions {
     /// Prefix for screenshot file names (usually the page slug).
     pub name: String,
     pub timeout: Duration,
+    /// Also exercise links, forms and hover/focus states (a few seconds more).
+    pub probe: bool,
 }
 
 impl Default for RenderOptions {
@@ -117,6 +123,7 @@ impl Default for RenderOptions {
             screenshot_dir: None,
             name: "page".into(),
             timeout: Duration::from_secs(30),
+            probe: true,
         }
     }
 }
@@ -228,6 +235,12 @@ impl Renderer {
             if width >= widest_sampled {
                 out.style = to_style_sample(&measured);
                 widest_sampled = width;
+                if opts.probe {
+                    // Back to a normal viewport so "in view" means something for hover targets.
+                    set_metrics(tab, width, 900)?;
+                    std::thread::sleep(Duration::from_millis(80));
+                    out.behavior = probe::probe(tab).ok();
+                }
             }
         }
         Ok(out)
@@ -394,8 +407,9 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
             dir.join("index.html"),
-            r#"<html><head><style>body{margin:0;background:#fafafa;color:#222;font-family:Arial} header{height:60px;background:#123456} main{padding:24px} @media (max-width:600px){main{padding:8px}}</style></head>
-            <body><header></header><main><h1 style="font-size:32px;color:#ff0000">Hi</h1><p>text</p></main><footer style="height:40px"></footer></body></html>"#,
+            r#"<html><head><style>body{margin:0;background:#fafafa;color:#222;font-family:Arial} header{height:60px;background:#123456} nav a{color:#fff} nav a:hover{color:#ff0} main{padding:24px} @media (max-width:600px){main{padding:8px}}</style></head>
+            <body><header><nav><a href="/">Home</a><a href="/missing">Gone</a></nav></header><main><h1 style="font-size:32px;color:#ff0000">Hi</h1><p>text</p>
+            <form><input name="email" type="email" required><button type="submit">Go</button></form></main><footer style="height:40px"></footer></body></html>"#,
         )
         .unwrap();
         let server = StaticServer::serve(&dir).unwrap();
@@ -416,6 +430,16 @@ mod tests {
         assert!(out.style.font_sizes.contains(&32.0));
         assert!(out.style.spacing.contains(&24.0));
         assert_eq!(out.style.background.as_deref(), Some("#fafafa"));
+        let b = out.behavior.expect("probe ran");
+        assert_eq!(b.links.len(), 2, "{b:?}");
+        assert!(b.links.iter().any(|(h, ok)| h == "/" && *ok));
+        assert!(b.links.iter().any(|(h, ok)| h == "/missing" && !*ok));
+        assert_eq!(b.forms.len(), 1);
+        assert_eq!(b.forms[0].required_fields, 1);
+        assert!(b.forms[0].blocks_empty_submit);
+        assert!(b.forms[0].accepts_filled);
+        assert!(b.forms[0].has_submit);
+        assert!(b.hover_changes.contains(&"nav a".to_string()), "{b:?}");
         let _ = std::fs::remove_dir_all(dir);
     }
 }

@@ -74,6 +74,9 @@ pub struct PageCapture {
     /// Measured styles from the rendered page, when a renderer was available.
     #[serde(default)]
     pub style: Option<StyleSample>,
+    /// Links and forms exercised on the rendered page, when a renderer was available.
+    #[serde(default)]
+    pub behavior: Option<BehaviorProbe>,
 }
 
 /// A rectangle on the rendered page, in CSS pixels.
@@ -160,4 +163,27 @@ impl Capture {
     pub fn total_words(&self) -> usize {
         self.pages.iter().map(|p| p.word_count).sum()
     }
+}
+
+/// What happened when the rendered page was *driven*: links resolved,
+/// forms validated. Measured on both the original and the build.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct BehaviorProbe {
+    /// Internal link href → did it resolve (HTTP 2xx/3xx on the same origin)?
+    pub links: Vec<(String, bool)>,
+    pub forms: Vec<FormProbe>,
+    /// Elements whose style changes on hover, e.g. `nav a`, `button`.
+    pub hover_changes: Vec<String>,
+    /// Elements that show a focus style when focused.
+    pub focus_changes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct FormProbe {
+    pub required_fields: usize,
+    /// `form.checkValidity()` is false when required fields are empty.
+    pub blocks_empty_submit: bool,
+    /// `form.checkValidity()` is true once every field holds a plausible value.
+    pub accepts_filled: bool,
+    pub has_submit: bool,
 }
