@@ -780,7 +780,14 @@ mod tests {
     }
 
     fn cap(pages: Vec<PageCapture>) -> Capture {
-        Capture { target: "t".into(), mode: Mode::CleanRoom, captured_at: String::new(), pages, limitations: vec![] }
+        Capture {
+            target: "t".into(),
+            mode: Mode::CleanRoom,
+            captured_at: String::new(),
+            pages,
+            program: None,
+            limitations: vec![],
+        }
     }
 
     #[test]

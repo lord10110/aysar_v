@@ -80,19 +80,26 @@ aysar compare https://original.example ./my-build
 
 | الوكيل | الأمر الذي يشغّله أيسر | الحالة |
 |---|---|---|
-| `claude-code` | `claude -p <prompt> --permission-mode acceptEdits` | مُجرَّب فعليًا |
-| `codex` | `codex exec --full-auto <prompt>` | إعداد جاهز |
-| `aider` | `aider --message-file {prompt_file} --yes-always --no-git --no-auto-commits` | إعداد جاهز |
-| `gemini` | `gemini --yolo -p <prompt>` | إعداد جاهز |
-| `opencode` | `opencode run <prompt>` | إعداد جاهز |
-| `goose` | `goose run --text <prompt>` | إعداد جاهز |
-| `qwen` | `qwen --yolo -p <prompt>` | إعداد جاهز |
+| `claude-code` | `claude -p <prompt> --permission-mode acceptEdits` | **مُجرَّب فعليًا**: إعادة بناء كاملة للموقع النموذجي بدرجة 92/100 من الجولة الأولى |
+| `codex` | `codex exec --sandbox workspace-write --skip-git-repo-check <prompt>` | الأعلام مُتحقَّق منها على v0.166 (مثبّت ومُشغَّل؛ يتوقف عند تسجيل الدخول) |
+| `gemini` | `gemini --yolo -p <prompt>` | الأعلام مُتحقَّق منها على v0.66 |
+| `opencode` | `opencode run <prompt>` | الأعلام مُتحقَّق منها على v1.19 |
+| `qwen` | `qwen --yolo <prompt>` | الأعلام مُتحقَّق منها على v0.26 |
+| `aider` | `aider --message-file {prompt_file} --yes --no-git --no-auto-commits` | من التوثيق (يحتاج Python ≤ 3.12) |
+| `goose` | `goose run --text <prompt>` | من التوثيق |
 | أي وكيل | `--agent "your-cmd --file {prompt_file}"` | — |
 | `dry-run` | يكتب `app/BUILD-PROMPT.md` ويتوقف | مُجرَّب |
 
-«إعداد جاهز» يعني أن الأمر يتبع الأعلام الموثقة للأداة لكنه لم يُشغَّل فعليًا بعد؛ يمكن استبداله بـ `AYSAR_AGENT_<NAME>`.
+«الأعلام مُتحقَّق منها» تعني أننا ثبّتنا الأداة وشغّلنا الأمر نفسه: يُفهَم ويصل حتى طلب حسابك. `aysar doctor` يعرض مستوى التحقق لكل وكيل.
 
 ### التطبيقات والألعاب
+
+في وضع Deep يُدرَس البرنامج أو حزمة التطبيق أو بناء اللعبة عبر محرك التحليل ([craft-anything-cli](https://github.com/storytold/craft-anything)): ما هو، اعتمادياته واستيراداته، عدد الدوال والسلاسل، النصوص التي يعرضها، ولحزم Android وJava و.NET وApple: المكوّنات والفئات والموارد. يدخل ذلك في قسم **Program** من المواصفة؛ لا يُنسخ أي كود.
+
+```bash
+aysar --deep rebuild ./some-app.exe "أعد بناءه كتطبيق Tauri" --kind app
+aysar --deep rebuild ./game.apk "أعد بناء هذه اللعبة في Godot" --kind game
+```
 
 المواقع تُقاد في متصفح. أما التطبيقات والألعاب فيُطلب من الباني أن يضيف `aysar-build.json`:
 
@@ -131,7 +138,9 @@ claude mcp add aysar -- aysar mcp         # لـ Claude Code بسطر واحد
 
 بيتا. كل ما في البدء السريع يعمل اليوم ومغطّى بالاختبارات (وحدات، Chromium حي، واختبارات صندوق أسود لسطر الأوامر) ومصفوفة GitHub Actions على Linux وmacOS وWindows. انظر [CHANGELOG.md](CHANGELOG.md).
 
-لم يُنجز بعد: دراسة ملفات التطبيقات والألعاب التنفيذية عبر المحرك (واجهة `Engine` جاهزة وتحتاج `craft-anything-cli` ووضع Deep)، رحلات المستخدم متعددة الخطوات في فحص السلوك، غلاف مكتبي أصلي (اللوحة صفحة ويب محلية)، والتجربة الفعلية لإعدادات الوكلاء غير Claude Code.
+جُرِّب فعليًا في هذا الإصدار: الدورة الكاملة مع Claude Code بانيًا (92/100 من الجولة الأولى)، ودراسة البرامج في وضع Deep عبر craft-anything-cli 0.4.0 على ملف ELF حقيقي.
+
+لم يُنجز بعد: إعادة تشغيل تفاعلات مسجَّلة على تطبيق مبني، رحلات المستخدم متعددة الخطوات، غلاف مكتبي أصلي، وتشغيل Codex/Gemini/opencode/Qwen/Aider حتى النهاية (أوامرهم مُتحقَّق منها؛ تحتاج تسجيل دخولك).
 
 ## الاستخدام المسؤول
 

@@ -4,7 +4,14 @@ All notable changes to Aysar. The format follows [Keep a Changelog](https://keep
 
 ## [0.2.0] — 2026-11-04
 
+### Verified live
+- The whole loop with **Claude Code** as the builder: 92/100 on the sample site in one round, zero mismatches.
+- **Program study** through craft-anything-cli 0.4.0 on a real ELF (`/usr/bin/zip`): format, dependencies, imports, 223 functions, 1,166 strings, user-facing messages.
+- Codex 0.166, Gemini CLI 0.66, opencode 1.19 and Qwen Code 0.26 installed and invoked with the preset commands: they parse and stop at sign-in. Codex's `--full-auto` no longer exists in `exec`; the preset is now `--sandbox workspace-write --skip-git-repo-check`. Qwen's `-p` is deprecated; the prompt is positional.
+
 ### Added
+- **Deep-mode program study** (`aysar-analysis::study`): routed by format, distilled into a `ProgramStudy` (what, platform, dependencies, imports, counts, UI text, feature names, components, resources, tools run) and rendered as the spec's **Program** section; behaviours derived from components.
+- `Verified` levels per agent in `aysar doctor` and the dashboard.
 - **Rendering** in headless Chromium found on the machine (never downloaded): full-page screenshots at 360/768/1280 px, region boxes, measured colours, fonts, type scale, spacing and radii; `StaticServer` so local folders render with real `/path` links.
 - **Behaviour probes**: same-origin links fetched from inside the page, forms validated empty and filled (never submitted), real hover and focus on nav links, buttons and inputs.
 - **Visual and behaviour check legs**, blended with structure and content (`0.35 / 0.10 / 0.35 / 0.20`); mismatches grouped by width; headings compared by level structure first.

@@ -124,6 +124,7 @@ pub fn study(
         ..Default::default()
     };
 
+    let mut program: Option<aysar_core::capture::ProgramStudy> = None;
     if let Target::Local { path } = &project.state.target {
         let p = Path::new(path);
         if p.is_file() {
@@ -140,17 +141,52 @@ pub fn study(
                 let engine = aysar_analysis::detect();
                 if project.state.mode.is_deep() && engine.name() != "none" {
                     rep.say(&format!("  Analysis engine: {} {}", engine.name(), engine.version().unwrap_or_default()));
-                    // Engine-driven app/game analysis lands here (see docs/ROADMAP.md, phase 3).
+                    match aysar_analysis::study::study_program(engine.as_ref(), path, project.state.mode) {
+                        Ok(st) => {
+                            rep.say(&format!(
+                                "  {} — {} function(s), {} string(s), {} UI text sample(s), {} feature name(s); tools: {}",
+                                st.what,
+                                st.function_count.map(|n| n.to_string()).unwrap_or_else(|| "?".into()),
+                                st.string_count.map(|n| n.to_string()).unwrap_or_else(|| "?".into()),
+                                st.ui_strings.len(),
+                                st.feature_names.len(),
+                                st.tools_run.join(", ")
+                            ));
+                            ledger.record(
+                                EvidenceKind::Observation,
+                                format!(
+                                    "program study: {} (format {:?}, {} deps, {} functions)",
+                                    st.what,
+                                    st.format,
+                                    st.dependencies.len(),
+                                    st.function_count.unwrap_or(0)
+                                ),
+                                format!("engine:{}", st.engine),
+                                0.9,
+                                vec![],
+                            )?;
+                            for l in &st.limitations {
+                                rep.say(&format!("    ! {l}"));
+                            }
+                            program = Some(st);
+                        }
+                        Err(e) => rep.say(&format!("  Engine study failed: {e}")),
+                    }
                 } else if project.state.mode.is_deep() {
                     rep.say("  No analysis engine installed (install craft-anything-cli for binaries).");
                 } else {
-                    rep.say("  Clean room: the file's insides are not read.");
+                    rep.say("  Clean room: the file's insides are not read. Use --deep to study it with the analysis engine.");
                 }
             }
         }
     }
 
     let mut cap = aysar_capture::capture(&project.state.target, &opts)?;
+    if program.is_some() {
+        cap.program = program;
+        // A program is not a web page; the "no .html files" note does not apply.
+        cap.limitations.retain(|l| !l.contains("no .html files"));
+    }
     render_capture(&mut cap, &project.state.target, &project.capture_dir(), &ledger, rep)?;
     aysar_capture::save(&cap, &project.capture_file())?;
     for p in &cap.pages {

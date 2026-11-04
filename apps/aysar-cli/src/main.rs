@@ -204,7 +204,11 @@ fn run() -> anyhow::Result<()> {
                     if a.installed { "✓" } else { "✗" },
                     a.name,
                     a.command,
-                    if a.verified { "" } else { "   (preset, not yet verified live)" }
+                    if a.verified == aysar_build::Verified::Live {
+                        String::new()
+                    } else {
+                        format!("   ({})", a.verified.label())
+                    }
                 );
             }
             let engine = aysar_analysis::detect();

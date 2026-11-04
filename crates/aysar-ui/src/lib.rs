@@ -195,7 +195,7 @@ impl Ui {
     fn doctor(&self) -> Value {
         let agents: Vec<Value> = aysar_build::status_detailed()
             .into_iter()
-            .map(|a| json!({"name": a.name, "installed": a.installed, "verified": a.verified, "command": a.command}))
+            .map(|a| json!({"name": a.name, "installed": a.installed, "verified": a.verified.label(), "command": a.command}))
             .collect();
         json!({
             "version": env!("CARGO_PKG_VERSION"),

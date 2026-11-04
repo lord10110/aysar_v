@@ -129,10 +129,32 @@ pub fn generate(input: SpecInput<'_>, ledger: Option<&Ledger>) -> anyhow::Result
 
     let design = extract_design(c, colors, fonts, ledger)?;
 
+    if let Some(pr) = &c.program {
+        for (i, comp) in pr.components.iter().take(20).enumerate() {
+            behaviors.push(Behavior {
+                id: format!("component-{}", i + 1),
+                description: format!("The original has a component or screen named `{comp}`; provide the equivalent."),
+                evidence: vec![],
+            });
+        }
+        if let Some(l) = ledger {
+            l.record(
+                EvidenceKind::Inference,
+                format!("{} behaviours derived from program components", pr.components.len().min(20)),
+                "aysar-spec",
+                0.7,
+                vec![],
+            )?;
+        }
+    }
+
     let stack = detect_stack(input.request);
     let mut limitations = c.limitations.clone();
-    if c.pages.is_empty() {
+    if c.pages.is_empty() && c.program.is_none() {
         limitations.push("No pages were captured; the build follows the request alone.".into());
+    }
+    if let Some(pr) = &c.program {
+        limitations.extend(pr.limitations.iter().cloned());
     }
 
     let spec = Spec {
@@ -148,6 +170,7 @@ pub fn generate(input: SpecInput<'_>, ledger: Option<&Ledger>) -> anyhow::Result
         design,
         behaviors,
         rules: Rules { extra: input.extra_rules, ..Default::default() },
+        program: c.program.clone(),
         limitations,
     };
 
@@ -376,6 +399,7 @@ mod tests {
                 landmarks: vec!["nav".into(), "footer".into()],
                 ..Default::default()
             }],
+            program: None,
             limitations: vec![],
         };
         let spec = generate(

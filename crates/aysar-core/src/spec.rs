@@ -114,6 +114,9 @@ pub struct Spec {
     pub design: DesignSystem,
     pub behaviors: Vec<Behavior>,
     pub rules: Rules,
+    /// For programs and app packages: what the analysis engine found.
+    #[serde(default)]
+    pub program: Option<crate::capture::ProgramStudy>,
     /// What the study could not learn.
     pub limitations: Vec<String>,
 }
@@ -160,6 +163,59 @@ impl Spec {
             }
             for n in &d.notes {
                 out.push_str(&format!("- {n}\n"));
+            }
+        }
+
+        if let Some(pr) = &self.program {
+            out.push_str("\n## Program (studied with the analysis engine)\n\n");
+            out.push_str(&format!("- What it is: {}\n", pr.what));
+            if let (Some(f), Some(a)) = (&pr.format, &pr.arch) {
+                out.push_str(&format!(
+                    "- Format {f}, architecture {a}{}\n",
+                    pr.platform.as_ref().map(|p| format!(", {p}")).unwrap_or_default()
+                ));
+            }
+            if let Some(n) = pr.size_bytes {
+                out.push_str(&format!("- Size: {} KB\n", n / 1024));
+            }
+            if !pr.dependencies.is_empty() {
+                out.push_str(&format!("- Depends on: {}\n", pr.dependencies.join(", ")));
+            }
+            if let Some(n) = pr.function_count {
+                out.push_str(&format!("- About {n} functions and {} strings\n", pr.string_count.unwrap_or(0)));
+            }
+            if !pr.imports.is_empty() {
+                out.push_str(&format!(
+                    "- Uses (imports): {}\n",
+                    pr.imports.iter().take(40).cloned().collect::<Vec<_>>().join(", ")
+                ));
+            }
+            if !pr.components.is_empty() {
+                out.push_str(&format!(
+                    "- Components: {}\n",
+                    pr.components.iter().take(30).cloned().collect::<Vec<_>>().join(", ")
+                ));
+            }
+            if !pr.feature_names.is_empty() {
+                out.push_str(&format!(
+                    "- Names that reveal features: {}\n",
+                    pr.feature_names.iter().take(40).cloned().collect::<Vec<_>>().join(", ")
+                ));
+            }
+            if !pr.resources.is_empty() {
+                out.push_str(&format!(
+                    "- Resources: {}\n",
+                    pr.resources.iter().take(30).cloned().collect::<Vec<_>>().join(", ")
+                ));
+            }
+            if !pr.ui_strings.is_empty() {
+                out.push_str("- Text the program shows (for the *kind* of screens and messages, not to copy):\n");
+                for t in pr.ui_strings.iter().take(40) {
+                    out.push_str(&format!("  - {t}\n"));
+                }
+            }
+            if !pr.tools_run.is_empty() {
+                out.push_str(&format!("- Engine tools consulted: {}\n", pr.tools_run.join(", ")));
             }
         }
 

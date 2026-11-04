@@ -88,19 +88,26 @@ Build needs a coding agent on your machine. Aysar runs *your* agent with *your* 
 
 | Agent | Command Aysar runs | Status |
 |---|---|---|
-| `claude-code` | `claude -p <prompt> --permission-mode acceptEdits` | verified live |
-| `codex` | `codex exec --full-auto <prompt>` | preset |
-| `aider` | `aider --message-file {prompt_file} --yes-always --no-git --no-auto-commits` | preset |
-| `gemini` | `gemini --yolo -p <prompt>` | preset |
-| `opencode` | `opencode run <prompt>` | preset |
-| `goose` | `goose run --text <prompt>` | preset |
-| `qwen` | `qwen --yolo -p <prompt>` | preset |
+| `claude-code` | `claude -p <prompt> --permission-mode acceptEdits` | **verified live**: a full rebuild of the sample site scored 92/100 in one round |
+| `codex` | `codex exec --sandbox workspace-write --skip-git-repo-check <prompt>` | flags verified against v0.166 (installed and invoked; stops at sign-in) |
+| `gemini` | `gemini --yolo -p <prompt>` | flags verified against v0.66 |
+| `opencode` | `opencode run <prompt>` | flags verified against v1.19 |
+| `qwen` | `qwen --yolo <prompt>` | flags verified against v0.26 |
+| `aider` | `aider --message-file {prompt_file} --yes --no-git --no-auto-commits` | from the docs (needs Python ≤ 3.12 to install) |
+| `goose` | `goose run --text <prompt>` | from the docs |
 | anything | `--agent "your-cmd --file {prompt_file}"` | — |
 | `dry-run` | writes `app/BUILD-PROMPT.md` and stops | verified |
 
-"Preset" means the command follows the tool's documented flags but has not yet been run live by us; override any with `AYSAR_AGENT_<NAME>`. `aysar doctor` shows which are installed.
+"Flags verified" means we installed the tool and ran the exact command: it parses and gets as far as asking for your account. Override any with `AYSAR_AGENT_<NAME>`; `aysar doctor` shows which are installed and the verification level of each.
 
 ### Apps and games
+
+In Deep mode, a program, app package or game build is studied through the analysis engine ([craft-anything-cli](https://github.com/storytold/craft-anything), found on `PATH` or via `AYSAR_CRAFT_ANYTHING_BIN`): what it is, its dependencies and imports, function and string counts, the text it shows, and — for Android, Java, .NET and Apple packages — components, classes and resources. That goes into the spec's **Program** section; no code is copied.
+
+```bash
+aysar --deep rebuild ./some-app.exe "Recreate this as a Tauri app" --kind app
+aysar --deep rebuild ./game.apk "Recreate this game in Godot" --kind game
+```
 
 Websites are driven in a browser. For apps and games the builder is asked to ship an `aysar-build.json`:
 
@@ -163,7 +170,9 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the pieces fit, [docs/S
 
 Beta. Everything in the quick start works today and is covered by tests (unit, live-Chromium, and black-box CLI tests) and a GitHub Actions matrix on Linux, macOS and Windows. See [CHANGELOG.md](CHANGELOG.md).
 
-Not yet: engine-driven study of app and game binaries (the `Engine` trait is ready; it needs `craft-anything-cli` installed and Deep mode), multi-step user journeys in behaviour checks, a native desktop shell (the dashboard is a local web page), and live verification of the agent presets other than Claude Code.
+Verified live in this release: the whole loop with Claude Code as the builder (92/100 first round on the sample site), and Deep-mode program study through craft-anything-cli 0.4.0 on a real ELF.
+
+Not yet: replaying recorded interactions on a built app, multi-step user journeys in behaviour checks, a native desktop shell (the dashboard is a local web page), and running Codex/Gemini/opencode/Qwen/Aider end to end (their commands are verified; they need your sign-in).
 
 ## Responsible use
 

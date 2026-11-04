@@ -167,6 +167,7 @@ mod tests {
             design: DesignSystem::default(),
             behaviors: vec![],
             rules: Rules::default(),
+            program: None,
             limitations: vec![],
         }
     }

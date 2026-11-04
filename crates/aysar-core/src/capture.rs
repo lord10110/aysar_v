@@ -151,6 +151,9 @@ pub struct Capture {
     pub mode: Mode,
     pub captured_at: String,
     pub pages: Vec<PageCapture>,
+    /// For programs, app packages and game builds: what the analysis engine found.
+    #[serde(default)]
+    pub program: Option<ProgramStudy>,
     /// Anything the capture could not do, in plain words.
     pub limitations: Vec<String>,
 }
@@ -186,4 +189,39 @@ pub struct FormProbe {
     /// `form.checkValidity()` is true once every field holds a plausible value.
     pub accepts_filled: bool,
     pub has_submit: bool,
+}
+
+/// What an analysis engine learned about a program, app package or game
+/// build (Deep mode only). Everything here is *about* the program; no code
+/// is copied into the spec, only names, counts and short samples.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ProgramStudy {
+    /// Which engine produced it, e.g. `craft-anything 0.4.0`.
+    pub engine: String,
+    /// One line: what the file is (format, platform, architecture).
+    pub what: String,
+    pub format: Option<String>,
+    pub platform: Option<String>,
+    pub arch: Option<String>,
+    pub size_bytes: Option<u64>,
+    /// Libraries, frameworks or runtimes the program depends on.
+    pub dependencies: Vec<String>,
+    /// Imported functions (from those libraries), which hint at capabilities.
+    #[serde(default)]
+    pub imports: Vec<String>,
+    /// Counts the engine reported.
+    pub function_count: Option<usize>,
+    pub string_count: Option<usize>,
+    /// Strings that look like user-facing text (labels, titles, messages).
+    pub ui_strings: Vec<String>,
+    /// Names of functions, classes or components that reveal features.
+    pub feature_names: Vec<String>,
+    /// App components (Android activities/services, .NET entry points, …).
+    pub components: Vec<String>,
+    /// Resource names (icons, layouts, sounds, …).
+    pub resources: Vec<String>,
+    /// Which engine tools were run, in order.
+    pub tools_run: Vec<String>,
+    /// What could not be learned.
+    pub limitations: Vec<String>,
 }

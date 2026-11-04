@@ -9,6 +9,8 @@
 //! Engines are only consulted in **Deep** mode. In Clean room, [`Engine::run`]
 //! is never called on a target's internals.
 
+pub mod study;
+
 use aysar_core::Mode;
 use serde::{Deserialize, Serialize};
 use std::path::Path;

@@ -109,7 +109,7 @@ impl Default for Codex {
             binary: std::env::var("AYSAR_CODEX_BIN").unwrap_or_else(|_| "codex".into()),
             extra_args: std::env::var("AYSAR_CODEX_ARGS")
                 .map(|s| s.split_whitespace().map(|x| x.to_string()).collect())
-                .unwrap_or_else(|_| vec!["--full-auto".into()]),
+                .unwrap_or_else(|_| vec!["--sandbox".into(), "workspace-write".into(), "--skip-git-repo-check".into()]),
         }
     }
 }
@@ -189,17 +189,40 @@ impl Agent for DryRun {
 
 /// Presets for agents we know the command line of. Each one is a
 /// [`Script`] template; override any with `AYSAR_AGENT_<NAME>` (upper-case,
-/// dashes as underscores), e.g. `AYSAR_AGENT_AIDER="aider --model x --message-file {prompt_file} --yes-always"`.
+/// dashes as underscores), e.g. `AYSAR_AGENT_AIDER="aider --model x --message-file {prompt_file} --yes"`.
 ///
-/// Verified live: claude-code. The others follow the tools' documented
-/// flags and are marked "untested" in `aysar doctor` until someone runs them.
-pub const PRESETS: &[(&str, &str, bool)] = &[
-    ("aider", "aider --message-file {prompt_file} --yes-always --no-git --no-auto-commits", false),
-    ("gemini", "gemini --yolo -p {prompt}", false),
-    ("opencode", "opencode run {prompt}", false),
-    ("goose", "goose run --text {prompt}", false),
-    ("qwen", "qwen --yolo -p {prompt}", false),
+/// The third field says how far each one has been verified:
+/// `Live` — ran a real build through Aysar; `Flags` — installed and invoked,
+/// the flags parse and it stops at sign-in (needs your account to go further);
+/// `Docs` — flags taken from the tool's documentation only.
+pub const PRESETS: &[(&str, &str, Verified)] = &[
+    ("aider", "aider --message-file {prompt_file} --yes --no-git --no-auto-commits", Verified::Docs),
+    ("gemini", "gemini --yolo -p {prompt}", Verified::Flags("0.66")),
+    ("opencode", "opencode run {prompt}", Verified::Flags("1.19")),
+    ("qwen", "qwen --yolo {prompt}", Verified::Flags("0.26")),
+    ("goose", "goose run --text {prompt}", Verified::Docs),
 ];
+
+/// How far an agent adapter has been checked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Verified {
+    /// A real build ran through Aysar with this agent.
+    Live,
+    /// Installed and invoked: the command line parses; it stopped at sign-in. Version noted.
+    Flags(&'static str),
+    /// Command line taken from the tool's documentation; not run here.
+    Docs,
+}
+
+impl Verified {
+    pub fn label(self) -> String {
+        match self {
+            Verified::Live => "verified live".into(),
+            Verified::Flags(v) => format!("flags verified against v{v}; needs your sign-in"),
+            Verified::Docs => "from the tool's docs; not run here".into(),
+        }
+    }
+}
 
 fn preset(name: &str) -> Option<Script> {
     let (label, template, _) = PRESETS.iter().find(|(n, _, _)| *n == name)?;
@@ -256,7 +279,7 @@ pub fn select(name: Option<&str>) -> anyhow::Result<Box<dyn Agent>> {
 pub struct AgentStatus {
     pub name: String,
     pub installed: bool,
-    pub verified: bool,
+    pub verified: Verified,
     pub command: String,
 }
 
@@ -272,13 +295,13 @@ pub fn status_detailed() -> Vec<AgentStatus> {
         AgentStatus {
             name: "claude-code".into(),
             installed: c.available(),
-            verified: true,
+            verified: Verified::Live,
             command: format!("{} -p <prompt> {}", c.binary, c.extra_args.join(" ")),
         },
         AgentStatus {
             name: "codex".into(),
             installed: x.available(),
-            verified: false,
+            verified: Verified::Flags("0.166"),
             command: format!("{} exec {} <prompt>", x.binary, x.extra_args.join(" ")),
         },
     ];
@@ -295,7 +318,7 @@ pub fn status_detailed() -> Vec<AgentStatus> {
     out.push(AgentStatus {
         name: "dry-run".into(),
         installed: true,
-        verified: true,
+        verified: Verified::Live,
         command: "writes app/BUILD-PROMPT.md".into(),
     });
     out

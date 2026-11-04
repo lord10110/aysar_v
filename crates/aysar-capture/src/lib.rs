@@ -58,6 +58,7 @@ pub fn capture(target: &Target, opts: &CaptureOptions) -> anyhow::Result<Capture
             mode: opts.mode,
             captured_at: aysar_core::now_rfc3339(),
             pages: vec![],
+            program: None,
             limitations: vec!["No target: nothing was studied; the build follows the request alone.".into()],
         }),
     }
@@ -163,6 +164,7 @@ pub fn capture_website(start: &str, opts: &CaptureOptions) -> anyhow::Result<Cap
         mode: opts.mode,
         captured_at: aysar_core::now_rfc3339(),
         pages,
+        program: None,
         limitations,
     })
 }
@@ -188,7 +190,15 @@ pub fn capture_local(path: &Path, opts: &CaptureOptions) -> anyhow::Result<Captu
             ));
         }
     } else if path.is_file() {
-        files.push(path.to_path_buf());
+        let name = path.to_string_lossy().to_ascii_lowercase();
+        if name.ends_with(".html") || name.ends_with(".htm") {
+            files.push(path.to_path_buf());
+        } else {
+            limitations.push(format!(
+                "{}: not an HTML page; studied as a program when an analysis engine is available.",
+                path.display()
+            ));
+        }
     } else {
         anyhow::bail!("{} does not exist", path.display());
     }
@@ -198,12 +208,7 @@ pub fn capture_local(path: &Path, opts: &CaptureOptions) -> anyhow::Result<Captu
     for f in files.iter().take(opts.max_pages.max(1)) {
         let body = fs::read_to_string(f)?;
         let rel = f.strip_prefix(&root).unwrap_or(f).to_string_lossy().replace('\\', "/");
-        let page_path = if rel == "index.html" {
-            "/".to_string()
-        } else {
-            format!("/{}", rel.trim_end_matches("index.html").trim_end_matches('/'))
-        };
-        let page_path = if page_path.is_empty() { "/".into() } else { page_path };
+        let page_path = url_path_for(&rel);
         pages.push(html::parse_page(&body, &f.display().to_string(), &page_path, &None, opts.mode));
     }
     if files.len() > opts.max_pages {
@@ -215,8 +220,23 @@ pub fn capture_local(path: &Path, opts: &CaptureOptions) -> anyhow::Result<Captu
         mode: opts.mode,
         captured_at: aysar_core::now_rfc3339(),
         pages,
+        program: None,
         limitations,
     })
+}
+
+/// The URL path a static host would serve a file at: `index.html` → `/`,
+/// `about/index.html` → `/about`, `contact.html` → `/contact`.
+pub fn url_path_for(rel: &str) -> String {
+    let r = rel.trim_start_matches("./").trim_start_matches('/');
+    let r = r.strip_suffix("index.html").or_else(|| r.strip_suffix("index.htm")).unwrap_or(r);
+    let r = r.strip_suffix(".html").or_else(|| r.strip_suffix(".htm")).unwrap_or(r);
+    let r = r.trim_end_matches('/');
+    if r.is_empty() {
+        "/".into()
+    } else {
+        format!("/{r}")
+    }
 }
 
 fn collect_html(dir: &Path, out: &mut Vec<PathBuf>, depth: usize) -> anyhow::Result<()> {
@@ -290,3 +310,16 @@ pub fn summarise(c: &Capture) -> String {
 
 #[allow(dead_code)]
 fn _assert_types(_: PageCapture) {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn url_paths() {
+        assert_eq!(url_path_for("index.html"), "/");
+        assert_eq!(url_path_for("about/index.html"), "/about");
+        assert_eq!(url_path_for("contact.html"), "/contact");
+        assert_eq!(url_path_for("./docs/a.htm"), "/docs/a");
+    }
+}

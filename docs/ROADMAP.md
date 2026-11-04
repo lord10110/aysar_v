@@ -33,7 +33,8 @@ Goal: beat the state of the art on the website vertical.
 ## Phase 2 — Agent-agnostic for real ✅ (mostly)
 
 - [x] Presets for Aider, Gemini CLI, opencode, goose, Qwen as command templates; `AYSAR_AGENT_<NAME>` overrides; `doctor` shows the command and whether it is verified.
-- [ ] Live verification of each preset (needs the tools installed and signed in; contributions welcome — see CONTRIBUTING).
+- [x] Claude Code verified live (full rebuild, 92/100). Codex 0.166, Gemini 0.66, opencode 1.19, Qwen 0.26 installed and invoked: flags parse, stop at sign-in. Aider/goose from docs.
+- [ ] End-to-end runs of the other agents with real accounts (contributions welcome — see CONTRIBUTING).
 - [ ] ACP (Agent Client Protocol) adapter so agents plug in without a template.
 - [x] `aysar enrich`: any OpenAI-compatible endpoint adds purposes, behaviours and notes as 0.6-confidence inferences.
 - [x] Candidate builds: `--agents a,b` builds each, checks each, keeps the best (sequential today; parallel later).
@@ -44,7 +45,7 @@ Goal: beat the state of the art on the website vertical.
 
 - [x] Self-test contract: `aysar-build.json {run, selftest}`; `check` runs it headlessly with a timeout and folds `PASS`/`FAIL` lines into the behaviour leg.
 - [x] App-specific builder deliverables (screens, flows, validation, headless self-test).
-- [ ] Engine-driven study in Deep mode through `craft-anything-cli` (functions, strings, resources, UI layouts) → `Spec` screens and flows.
+- [x] Engine-driven study in Deep mode through `craft-anything-cli` 0.4.0: triage, overview, functions, strings; Android/Java/.NET/Apple routes for components, classes and resources → the spec's Program section. Verified live on a real ELF.
 - [ ] Window capture in Clean room (a picture of the running app) → screens and visible controls.
 - [ ] Interaction recording: a short session on the original becomes `Behavior`s; replay on the build.
 
