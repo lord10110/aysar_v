@@ -7,6 +7,7 @@ jobs:
   test:
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -26,6 +27,9 @@ jobs:
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo build --release
       - run: cargo test
+        timeout-minutes: 20
+        env:
+          RUST_BACKTRACE: 1
       - name: Smoke test
         shell: bash
         run: |

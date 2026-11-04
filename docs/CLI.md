@@ -41,6 +41,7 @@ Global flags (any command): `--deep` / `--clean-room` (mode), `--no-render` (ski
 | `AYSAR_CONFIG` | Path of the config file |
 | `AYSAR_PROJECTS_DIR`, `AYSAR_AGENT`, `AYSAR_CHROME` | Override config values |
 | `AYSAR_NO_RENDER` | Same as `--no-render` |
+| `AYSAR_CHROME_NO_SANDBOX` | Launch Chromium without its sandbox straight away (containers, locked-down CI) |
 | `AYSAR_CLAUDE_BIN`, `AYSAR_CLAUDE_ARGS` | Claude Code binary and extra args (default `--permission-mode acceptEdits`) |
 | `AYSAR_CODEX_BIN`, `AYSAR_CODEX_ARGS` | Codex binary and extra args (default `--full-auto`) |
 | `AYSAR_AGENT_AIDER`, `AYSAR_AGENT_GEMINI`, … | Replace a preset's command template |

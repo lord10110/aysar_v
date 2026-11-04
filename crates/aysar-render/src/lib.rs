@@ -142,12 +142,39 @@ impl Renderer {
     }
 
     pub fn launch_with(chrome: &Path) -> anyhow::Result<Renderer> {
-        // Prefer Chromium's sandbox; it is refused when running as root (containers),
-        // so fall back to no sandbox only if the first launch fails.
-        match Self::launch_opts(chrome, true) {
-            Ok(r) => Ok(r),
-            Err(_) => Self::launch_opts(chrome, false),
+        // Prefer Chromium's sandbox. It is refused as root (containers) and on
+        // kernels that block unprivileged user namespaces (Ubuntu 24.04 CI
+        // runners): there the browser may start yet never load a page. So a
+        // launch only counts once a page actually renders; otherwise retry
+        // without the sandbox. `AYSAR_CHROME_NO_SANDBOX=1` skips the first try.
+        let skip_sandbox = std::env::var_os("AYSAR_CHROME_NO_SANDBOX").is_some();
+        if !skip_sandbox {
+            if let Ok(r) = Self::launch_opts(chrome, true) {
+                if r.healthy() {
+                    return Ok(r);
+                }
+            }
         }
+        let r = Self::launch_opts(chrome, false)?;
+        if r.healthy() {
+            Ok(r)
+        } else {
+            anyhow::bail!("Chromium at {} started but could not render a page", chrome.display())
+        }
+    }
+
+    /// Can this browser open a page and run a line of JavaScript within a few seconds?
+    fn healthy(&self) -> bool {
+        let Ok(tab) = self.browser.new_tab() else { return false };
+        tab.set_default_timeout(Duration::from_secs(10));
+        let ok = tab
+            .navigate_to("about:blank")
+            .and_then(|t| t.wait_until_navigated())
+            .and_then(|t| t.evaluate("1 + 1", false))
+            .map(|v| v.value == Some(serde_json::json!(2)))
+            .unwrap_or(false);
+        let _ = tab.close(true);
+        ok
     }
 
     fn launch_opts(chrome: &Path, sandbox: bool) -> anyhow::Result<Renderer> {
