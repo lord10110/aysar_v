@@ -1,6 +1,9 @@
 //! The pipeline. Each step is a function so the CLI, the MCP server and a
 //! future desktop app can run them one at a time or all together.
 
+pub mod config;
+pub mod selftest;
+
 use aysar_build::prompt::{build_prompt, PreviousCheck};
 use aysar_capture::CaptureOptions;
 use aysar_core::evidence::{EvidenceKind, Ledger};
@@ -33,6 +36,8 @@ pub struct RebuildOptions {
     pub mode: Mode,
     pub max_pages: usize,
     pub agent: Option<String>,
+    /// More than one agent: each builds a candidate, the best one wins.
+    pub agents: Vec<String>,
     pub rounds: usize,
     /// Stop refining once the score reaches this.
     pub target_score: f32,
@@ -46,6 +51,7 @@ impl Default for RebuildOptions {
             mode: Mode::CleanRoom,
             max_pages: 5,
             agent: None,
+            agents: vec![],
             rounds: 2,
             target_score: 85.0,
             extra_rules: vec![],
@@ -344,9 +350,22 @@ pub fn specify(project: &mut Project, extra_rules: Vec<String>, rep: &dyn Report
     Ok(spec)
 }
 
-/// Step 3: run the coding agent.
+/// Step 3: run the coding agent into `app/`.
 pub fn build(
     project: &mut Project,
+    agent_name: Option<&str>,
+    round: usize,
+    previous: Option<&Report>,
+    rep: &dyn Reporter,
+) -> anyhow::Result<aysar_build::BuildOutput> {
+    let dir = project.app_dir();
+    build_into(project, &dir, agent_name, round, previous, rep)
+}
+
+/// Run the coding agent into any folder (used for candidates).
+pub fn build_into(
+    project: &mut Project,
+    app_dir: &Path,
     agent_name: Option<&str>,
     round: usize,
     previous: Option<&Report>,
@@ -358,12 +377,13 @@ pub fn build(
     if !agent.available() {
         anyhow::bail!("agent `{}` is not installed or not on PATH", agent.name());
     }
-    let existing = aysar_build::list_files(&project.app_dir());
+    let existing = aysar_build::list_files(app_dir);
     let prev = previous.map(|r| PreviousCheck { score: r.score, mismatches: &r.mismatches });
     let prompt = build_prompt(&spec, round, prev, &existing);
-    fs::write(project.spec_dir().join(format!("prompt-round-{round}.md")), &prompt)?;
-    rep.say(&format!("Building with {} (round {round})…", agent.name()));
-    let out = agent.run(&project.app_dir(), &prompt)?;
+    let tag = if app_dir == project.app_dir() { String::new() } else { format!("-{}", agent.name()) };
+    fs::write(project.spec_dir().join(format!("prompt-round-{round}{tag}.md")), &prompt)?;
+    rep.say(&format!("Building with {} (round {round}) in {}…", agent.name(), app_dir.display()));
+    let out = agent.run(app_dir, &prompt)?;
     ledger.record(
         EvidenceKind::Action,
         format!(
@@ -391,27 +411,36 @@ pub fn build(
     Ok(out)
 }
 
-/// Step 4: check the build against the original.
+/// Step 4: check `app/` against the original.
 pub fn check(project: &mut Project, rep: &dyn Reporter) -> anyhow::Result<Report> {
+    let dir = project.app_dir();
+    check_dir(project, &dir, rep)
+}
+
+/// Check any folder against the original (used for candidates). The check
+/// is numbered like every other check; the folder is named in the report.
+pub fn check_dir(project: &mut Project, app_dir: &Path, rep: &dyn Reporter) -> anyhow::Result<Report> {
     let ledger = Ledger::open(project.ledger_file())?;
     let original = aysar_capture::load(&project.capture_file())?;
     let mut build_cap = aysar_capture::capture_local(
-        &project.app_dir(),
+        app_dir,
         &CaptureOptions { mode: Mode::Deep, max_pages: original.pages.len().max(1) + 5, ..Default::default() },
     )?;
+    let n = project.next_check_number();
     if original.pages.iter().any(|p| !p.viewports.is_empty()) {
-        let n = project.next_check_number();
         let shots_dir = project.checks_dir().join(format!("check-{n:03}-screenshots"));
         render_capture(
             &mut build_cap,
-            &Target::Local { path: project.app_dir().display().to_string() },
+            &Target::Local { path: app_dir.display().to_string() },
             &shots_dir,
             &ledger,
             rep,
         )?;
     }
-    let report = aysar_verify::compare(&original, &build_cap);
-    let n = project.next_check_number();
+    let mut report = aysar_verify::compare(&original, &build_cap);
+    if let Some(name) = selftest::run(app_dir, rep)? {
+        selftest::fold_into(&mut report, name);
+    }
     write_diff_images(project, &original, &build_cap, n, rep);
     let json = project.checks_dir().join(format!("check-{n:03}.json"));
     let md = project.checks_dir().join(format!("check-{n:03}.md"));
@@ -475,8 +504,23 @@ pub fn rebuild(project: &mut Project, opts: &RebuildOptions, rep: &dyn Reporter)
     study(project, opts.max_pages, rep)?;
     specify(project, opts.extra_rules.clone(), rep)?;
     let mut last: Option<Report> = None;
-    for round in 1..=opts.rounds.max(1) {
-        let out = build(project, opts.agent.as_deref(), round, last.as_ref(), rep)?;
+    let mut winner: Option<String> = opts.agent.clone();
+    let mut first_round = 1;
+    if opts.agents.len() > 1 {
+        let (name, report) = candidates(project, &opts.agents, rep)?;
+        winner = Some(name);
+        last = report;
+        first_round = 2;
+        if let Some(r) = &last {
+            if r.score >= opts.target_score {
+                project.advance(Stage::Ready, "best candidate met the target")?;
+                rep.say(&format!("Ready: {}", project.app_dir().display()));
+                return Ok(last);
+            }
+        }
+    }
+    for round in first_round..=opts.rounds.max(first_round) {
+        let out = build(project, winner.as_deref(), round, last.as_ref(), rep)?;
         if out.agent == "dry-run" {
             rep.say("Dry run: no agent installed. The prompt is in app/BUILD-PROMPT.md; run `aysar build` after installing Claude Code or Codex.");
             return Ok(None);
@@ -492,6 +536,86 @@ pub fn rebuild(project: &mut Project, opts: &RebuildOptions, rep: &dyn Reporter)
     project.advance(Stage::Ready, "pipeline finished")?;
     rep.say(&format!("Ready: {}", project.app_dir().display()));
     Ok(last)
+}
+
+/// Build one candidate per agent, check each, keep the best in `app/`.
+/// Returns the winning agent's name and its report.
+pub fn candidates(
+    project: &mut Project,
+    agents: &[String],
+    rep: &dyn Reporter,
+) -> anyhow::Result<(String, Option<Report>)> {
+    let ledger = Ledger::open(project.ledger_file())?;
+    let mut results: Vec<(String, PathBuf, Option<Report>)> = Vec::new();
+    for agent in agents {
+        let dir = project.root.join("candidates").join(slugify(agent));
+        fs::create_dir_all(&dir)?;
+        match build_into(project, &dir, Some(agent), 1, None, rep) {
+            Ok(out) if out.agent == "dry-run" => {
+                results.push((agent.clone(), dir, None));
+            }
+            Ok(_) => {
+                let r = check_dir(project, &dir, rep)?;
+                results.push((agent.clone(), dir, Some(r)));
+            }
+            Err(e) => {
+                rep.say(&format!("  {agent}: {e}"));
+                ledger.record(
+                    EvidenceKind::Action,
+                    format!("candidate {agent} failed: {e}"),
+                    "aysar-orchestrator",
+                    1.0,
+                    vec![],
+                )?;
+            }
+        }
+    }
+    let scored: Vec<&(String, PathBuf, Option<Report>)> = results.iter().filter(|r| r.2.is_some()).collect();
+    let Some(best) = scored.iter().max_by(|a, b| {
+        let sa = a.2.as_ref().map(|r| r.score).unwrap_or(0.0);
+        let sb = b.2.as_ref().map(|r| r.score).unwrap_or(0.0);
+        sa.partial_cmp(&sb).unwrap_or(std::cmp::Ordering::Equal)
+    }) else {
+        anyhow::bail!("no candidate produced a build; agents tried: {}", agents.join(", "));
+    };
+    let (name, dir, report) = (&best.0, &best.1, best.2.clone());
+    let summary: Vec<String> = results
+        .iter()
+        .map(|(a, _, r)| {
+            format!("{a}={}", r.as_ref().map(|r| format!("{:.0}", r.score)).unwrap_or_else(|| "n/a".into()))
+        })
+        .collect();
+    rep.say(&format!("Candidates: {} → best is {name}", summary.join(", ")));
+    // Replace app/ with the winner.
+    let app = project.app_dir();
+    let _ = fs::remove_dir_all(&app);
+    copy_dir(dir, &app)?;
+    project.state.agent = Some(name.clone());
+    project.state.score = report.as_ref().map(|r| r.score);
+    project.state.candidates = results.iter().map(|(a, _, r)| (a.clone(), r.as_ref().map(|r| r.score))).collect();
+    project.save()?;
+    ledger.record(
+        EvidenceKind::Decision,
+        format!("picked candidate {name} ({}) into app/", summary.join(", ")),
+        "aysar-orchestrator::candidates",
+        1.0,
+        vec![],
+    )?;
+    Ok((name.clone(), report))
+}
+
+fn copy_dir(from: &Path, to: &Path) -> anyhow::Result<()> {
+    fs::create_dir_all(to)?;
+    for e in fs::read_dir(from)?.flatten() {
+        let p = e.path();
+        let dest = to.join(e.file_name());
+        if p.is_dir() {
+            copy_dir(&p, &dest)?;
+        } else {
+            fs::copy(&p, &dest)?;
+        }
+    }
+    Ok(())
 }
 
 fn last_lines(s: &str, n: usize) -> String {

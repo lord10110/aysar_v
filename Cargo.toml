@@ -8,6 +8,7 @@ members = [
     "crates/aysar-build",
     "crates/aysar-verify",
     "crates/aysar-render",
+    "crates/aysar-enrich",
     "crates/aysar-orchestrator",
     "crates/aysar-mcp",
     "apps/aysar-cli",
@@ -29,6 +30,7 @@ aysar-spec = { path = "crates/aysar-spec" }
 aysar-build = { path = "crates/aysar-build" }
 aysar-verify = { path = "crates/aysar-verify" }
 aysar-render = { path = "crates/aysar-render" }
+aysar-enrich = { path = "crates/aysar-enrich" }
 aysar-orchestrator = { path = "crates/aysar-orchestrator" }
 aysar-mcp = { path = "crates/aysar-mcp" }
 
@@ -46,6 +48,7 @@ hex = "0.4"
 headless_chrome = "1.0"
 image = { version = "0.25", default-features = false, features = ["png"] }
 tiny_http = "0.12"
+toml = "0.8"
 
 [profile.release]
 lto = "thin"

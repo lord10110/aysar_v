@@ -160,6 +160,27 @@ impl Agent for DryRun {
     }
 }
 
+/// Presets for agents we know the command line of. Each one is a
+/// [`Script`] template; override any with `AYSAR_AGENT_<NAME>` (upper-case,
+/// dashes as underscores), e.g. `AYSAR_AGENT_AIDER="aider --model x --message-file {prompt_file} --yes-always"`.
+///
+/// Verified live: claude-code. The others follow the tools' documented
+/// flags and are marked "untested" in `aysar doctor` until someone runs them.
+pub const PRESETS: &[(&str, &str, bool)] = &[
+    ("aider", "aider --message-file {prompt_file} --yes-always --no-git --no-auto-commits", false),
+    ("gemini", "gemini --yolo -p {prompt}", false),
+    ("opencode", "opencode run {prompt}", false),
+    ("goose", "goose run --text {prompt}", false),
+    ("qwen", "qwen --yolo -p {prompt}", false),
+];
+
+fn preset(name: &str) -> Option<Script> {
+    let (label, template, _) = PRESETS.iter().find(|(n, _, _)| *n == name)?;
+    let env_key = format!("AYSAR_AGENT_{}", label.to_ascii_uppercase().replace('-', "_"));
+    let template = std::env::var(env_key).unwrap_or_else(|_| template.to_string());
+    Some(Script { label: label.to_string(), template })
+}
+
 /// Choose an agent by name, or the best available one.
 pub fn select(name: Option<&str>) -> anyhow::Result<Box<dyn Agent>> {
     match name.map(|s| s.to_ascii_lowercase()).as_deref() {
@@ -172,30 +193,83 @@ pub fn select(name: Option<&str>) -> anyhow::Result<Box<dyn Agent>> {
             if x.available() {
                 return Ok(Box::new(x));
             }
+            for (n, _, _) in PRESETS {
+                if let Some(p) = preset(n) {
+                    if p.available() {
+                        return Ok(Box::new(p));
+                    }
+                }
+            }
             Ok(Box::new(DryRun))
         }
         Some("claude" | "claude-code") => Ok(Box::new(ClaudeCode::default())),
         Some("codex") => Ok(Box::new(Codex::default())),
         Some("dry-run" | "none") => Ok(Box::new(DryRun)),
         Some(other) => {
+            if let Some(p) = preset(other) {
+                return Ok(Box::new(p));
+            }
             if other.contains(' ') || other.contains("{prompt") {
                 Ok(Box::new(Script { label: "script".into(), template: other.to_string() }))
             } else {
+                let names: Vec<&str> = PRESETS.iter().map(|(n, _, _)| *n).collect();
                 anyhow::bail!(
-                    "unknown agent `{other}`; use claude-code, codex, dry-run, or a command template with {{prompt}}"
+                    "unknown agent `{other}`; use claude-code, codex, {}, dry-run, or a command template with {{prompt}} / {{prompt_file}}",
+                    names.join(", ")
                 )
             }
         }
     }
 }
 
+/// One line per agent: name, installed?, verified live?
+#[derive(Debug, Clone)]
+pub struct AgentStatus {
+    pub name: String,
+    pub installed: bool,
+    pub verified: bool,
+    pub command: String,
+}
+
 /// All built-in agents and whether each is installed.
 pub fn status() -> Vec<(String, bool)> {
-    vec![
-        ("claude-code".into(), ClaudeCode::default().available()),
-        ("codex".into(), Codex::default().available()),
-        ("dry-run".into(), true),
-    ]
+    status_detailed().into_iter().map(|a| (a.name, a.installed)).collect()
+}
+
+pub fn status_detailed() -> Vec<AgentStatus> {
+    let c = ClaudeCode::default();
+    let x = Codex::default();
+    let mut out = vec![
+        AgentStatus {
+            name: "claude-code".into(),
+            installed: c.available(),
+            verified: true,
+            command: format!("{} -p <prompt> {}", c.binary, c.extra_args.join(" ")),
+        },
+        AgentStatus {
+            name: "codex".into(),
+            installed: x.available(),
+            verified: false,
+            command: format!("{} exec {} <prompt>", x.binary, x.extra_args.join(" ")),
+        },
+    ];
+    for (n, _, verified) in PRESETS {
+        if let Some(p) = preset(n) {
+            out.push(AgentStatus {
+                name: n.to_string(),
+                installed: p.available(),
+                verified: *verified,
+                command: p.template,
+            });
+        }
+    }
+    out.push(AgentStatus {
+        name: "dry-run".into(),
+        installed: true,
+        verified: true,
+        command: "writes app/BUILD-PROMPT.md".into(),
+    });
+    out
 }
 
 fn run_command(agent: &str, mut cmd: Command, workdir: &Path) -> anyhow::Result<BuildOutput> {
@@ -316,5 +390,8 @@ mod tests {
     fn select_unknown_errors() {
         assert!(select(Some("nope")).is_err());
         assert!(select(Some("dry-run")).is_ok());
+        assert_eq!(select(Some("aider")).unwrap().name(), "aider");
+        assert_eq!(select(Some("my-agent --file {prompt_file}")).unwrap().name(), "script");
+        assert!(status_detailed().iter().any(|a| a.name == "gemini"));
     }
 }

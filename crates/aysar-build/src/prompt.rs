@@ -55,6 +55,20 @@ pub fn build_prompt(
         p.push_str("- Forms with the same fields, types and required flags; client-side validation and a visible success/error state.\n");
         p.push_str("- Responsive at 360px, 768px and 1280px widths. The result is rendered at those widths and compared with the original: match the measured colours, fonts, type scale, spacing and the height and order of header, navigation, main, forms and footer given under each page's **Layout (measured)**.\n");
     }
+    if matches!(spec.kind, Kind::App | Kind::Game | Kind::Unknown) {
+        p.push_str("- An `aysar-build.json` at the root: `{\"run\": \"<command that starts it>\", \"selftest\": \"<command that proves it works>\", \"notes\": \"…\"}`. The self-test must run without a display or user input, exit 0 on success, and print one line per check in the form `PASS <what>` or `FAIL <what>`.\n");
+    }
+    match spec.kind {
+        Kind::Game => {
+            p.push_str("- Gameplay first: controls, rules, scoring, win/lose conditions and restart, each covered by a `PASS`/`FAIL` line in the self-test (simulate inputs; do not require a window).\n");
+            p.push_str("- A readable `GAMEPLAY.md` listing the rules you implemented and how they map to the spec.\n");
+        }
+        Kind::App => {
+            p.push_str("- Every screen and flow in the spec, with state kept across navigation; the self-test exercises each flow headlessly.\n");
+            p.push_str("- Input validation and error states for every form.\n");
+        }
+        _ => {}
+    }
     p.push_str("- Do not ask questions; make sensible choices and note them in `DECISIONS.md`.\n\n");
 
     if round > 1 {
@@ -111,6 +125,11 @@ mod tests {
             &["index.html".into()],
         );
         assert!(p.contains("Round 2"));
+        let mut game = spec.clone();
+        game.kind = Kind::Game;
+        let g = build_prompt(&game, 1, None, &[]);
+        assert!(g.contains("aysar-build.json"));
+        assert!(g.contains("GAMEPLAY.md"));
         assert!(p.contains("title differs"));
         assert!(p.contains("# Spec: t"));
     }

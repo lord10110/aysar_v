@@ -19,3 +19,4 @@ aysar-render.workspace = true
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+toml.workspace = true

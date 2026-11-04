@@ -64,15 +64,21 @@ enum Cmd {
         target: String,
         /// What you want, in plain words.
         request: String,
-        /// Coding agent: claude-code, codex, dry-run, or a command template with {prompt_file}.
+        /// Coding agent: claude-code, codex, aider, gemini, opencode, goose, dry-run, or a command template with {prompt_file}.
         #[arg(long)]
         agent: Option<String>,
-        #[arg(long, default_value_t = 2)]
-        rounds: usize,
-        #[arg(long, default_value_t = 85.0)]
-        target_score: f32,
-        #[arg(long, default_value_t = 5)]
-        max_pages: usize,
+        /// Several agents, comma-separated: each builds a candidate and the best one wins.
+        #[arg(long, value_delimiter = ',')]
+        agents: Vec<String>,
+        /// Refinement rounds (default 2, or `rounds` in the config file).
+        #[arg(long)]
+        rounds: Option<usize>,
+        /// Stop refining at this score (default 85).
+        #[arg(long)]
+        target_score: Option<f32>,
+        /// Pages to study (default 5).
+        #[arg(long)]
+        max_pages: Option<usize>,
         /// Override the detected kind.
         #[arg(long, value_enum)]
         kind: Option<KindArg>,
@@ -82,6 +88,17 @@ enum Cmd {
         /// Extra rule for the builder (repeatable).
         #[arg(long = "rule")]
         rules: Vec<String>,
+    },
+    /// Ask a language model (local or hosted, OpenAI-compatible) to add page purposes,
+    /// behaviours and design notes to a project's spec, as low-confidence inferences.
+    Enrich {
+        project: PathBuf,
+        /// Base URL ending in /v1 (default: config `llm.url`, else http://localhost:11434/v1).
+        #[arg(long)]
+        url: Option<String>,
+        /// Model name (default: config `llm.model`, else llama3.1).
+        #[arg(long)]
+        model: Option<String>,
     },
     /// Generate (or regenerate) the spec for an existing project.
     Spec {
@@ -117,6 +134,12 @@ enum Cmd {
     Mcp,
     /// Print the JSON snippet to register Aysar as an MCP server.
     Setup,
+    /// Show the configuration file, or write a starter one with `--init`.
+    Config {
+        /// Write a commented starter config if none exists.
+        #[arg(long)]
+        init: bool,
+    },
 }
 
 fn main() {
@@ -138,13 +161,21 @@ fn run() -> anyhow::Result<()> {
         std::env::set_var("AYSAR_NO_RENDER", "1");
     }
     let rep = Stdout;
+    let cfg = aysar_orchestrator::config::Config::load();
+    cfg.export_env();
 
     match cli.cmd {
         Cmd::Doctor => {
             println!("aysar {}", env!("CARGO_PKG_VERSION"));
             println!("\nCoding agents (for Build):");
-            for (name, ok) in aysar_build::status() {
-                println!("  {} {name}", if ok { "✓" } else { "✗" });
+            for a in aysar_build::status_detailed() {
+                println!(
+                    "  {} {:<12} {}{}",
+                    if a.installed { "✓" } else { "✗" },
+                    a.name,
+                    a.command,
+                    if a.verified { "" } else { "   (preset, not yet verified live)" }
+                );
             }
             let engine = aysar_analysis::detect();
             println!("\nAnalysis engine (for apps, games and binaries in Deep mode):");
@@ -159,6 +190,12 @@ fn run() -> anyhow::Result<()> {
                 None => println!("  ✗ none — install Google Chrome or Chromium, or set AYSAR_CHROME=/path/to/chrome"),
             }
             println!("\nProjects folder: {}", aysar_orchestrator::default_projects_dir().display());
+            let cpath = aysar_orchestrator::config::Config::path();
+            println!(
+                "Config file: {} ({})",
+                cpath.display(),
+                if cpath.exists() { "found" } else { "not created; `aysar config --init`" }
+            );
             println!("Mode: {mode}");
             let any_agent = aysar_build::status().iter().any(|(n, ok)| *ok && n != "dry-run");
             if !any_agent {
@@ -194,17 +231,19 @@ fn run() -> anyhow::Result<()> {
             println!("{}: {}", path.display(), aysar_analysis::identify(&path)?);
         }
 
-        Cmd::Rebuild { target, request, agent, rounds, target_score, max_pages, kind, projects_dir, rules } => {
+        Cmd::Rebuild { target, request, agent, agents, rounds, target_score, max_pages, kind, projects_dir, rules } => {
             let t = Target::parse(&target);
-            let dir = projects_dir.unwrap_or_else(aysar_orchestrator::default_projects_dir);
+            let dir =
+                projects_dir.or(cfg.projects_dir.clone()).unwrap_or_else(aysar_orchestrator::default_projects_dir);
             let mut p = aysar_orchestrator::new_project(&dir, t, &request, mode, kind.map(Into::into))?;
             println!("Project: {}", p.root.display());
             let opts = RebuildOptions {
                 mode,
-                max_pages,
-                agent,
-                rounds,
-                target_score,
+                max_pages: max_pages.or(cfg.max_pages).unwrap_or(5),
+                agent: agent.or(cfg.agent.clone()),
+                agents,
+                rounds: rounds.or(cfg.rounds).unwrap_or(2),
+                target_score: target_score.or(cfg.target_score).unwrap_or(85.0),
                 extra_rules: rules,
                 kind: kind.map(Into::into),
             };
@@ -219,6 +258,34 @@ fn run() -> anyhow::Result<()> {
             aysar_orchestrator::specify(&mut p, rules, &rep)?;
         }
 
+        Cmd::Enrich { project, url, model } => {
+            let p = Project::open(&project).context("open project")?;
+            if !p.spec_file().exists() {
+                anyhow::bail!("no spec yet; run `aysar spec {}` first", project.display());
+            }
+            let mut llm = aysar_enrich::LlmConfig::default();
+            if let Some(u) = url.or(cfg.llm.url.clone()) {
+                llm.url = u;
+            }
+            if let Some(m) = model.or(cfg.llm.model.clone()) {
+                llm.model = m;
+            }
+            if let Some(k) = cfg.llm.key.clone() {
+                llm.key = Some(k);
+            }
+            println!("Asking {} at {}…", llm.model, llm.url);
+            let mut spec = aysar_core::spec::Spec::from_json(&std::fs::read_to_string(p.spec_file())?)?;
+            let e = aysar_enrich::ask(&llm, &spec)?;
+            let ledger = Ledger::open(p.ledger_file())?;
+            let n = aysar_enrich::merge(&mut spec, &e, &llm.model, Some(&ledger))?;
+            std::fs::write(p.spec_file(), spec.to_json())?;
+            std::fs::write(p.spec_markdown(), spec.to_markdown())?;
+            println!("Added {n} item(s) to {} (marked as suggested by {}).", p.spec_markdown().display(), llm.model);
+            if let Some(s) = e.summary {
+                println!("Summary: {s}");
+            }
+        }
+
         Cmd::Build { project, agent } => {
             let mut p = Project::open(&project).context("open project")?;
             if !p.spec_file().exists() {
@@ -226,6 +293,7 @@ fn run() -> anyhow::Result<()> {
             }
             let round = p.next_check_number();
             let prev = latest_report(&p)?;
+            let agent = agent.or_else(|| p.state.agent.clone()).or(cfg.agent.clone());
             aysar_orchestrator::build(&mut p, agent.as_deref(), round, prev.as_ref(), &rep)?;
             aysar_orchestrator::check(&mut p, &rep)?;
         }
@@ -254,6 +322,14 @@ fn run() -> anyhow::Result<()> {
             }
             if let Some(sc) = s.score {
                 println!("  score:   {sc:.0}/100");
+            }
+            if !s.candidates.is_empty() {
+                let c: Vec<String> = s
+                    .candidates
+                    .iter()
+                    .map(|(a, sc)| format!("{a}={}", sc.map(|x| format!("{x:.0}")).unwrap_or_else(|| "n/a".into())))
+                    .collect();
+                println!("  candidates: {}", c.join(", "));
             }
             println!("  app:     {}", p.app_dir().display());
             println!("\nHistory:");
@@ -291,6 +367,23 @@ fn run() -> anyhow::Result<()> {
 
         Cmd::Mcp => aysar_mcp::serve_stdio()?,
 
+        Cmd::Config { init } => {
+            let path = aysar_orchestrator::config::Config::path();
+            if init && !path.exists() {
+                if let Some(parent) = path.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::write(&path, STARTER_CONFIG)?;
+                println!("Wrote {}", path.display());
+            }
+            println!(
+                "# {}{}\n",
+                path.display(),
+                if path.exists() { "" } else { " (not created yet; run `aysar config --init`)" }
+            );
+            print!("{}", cfg.to_toml());
+        }
+
         Cmd::Setup => {
             let exe = std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_else(|_| "aysar".into());
             println!(
@@ -306,6 +399,21 @@ fn run() -> anyhow::Result<()> {
     }
     Ok(())
 }
+
+const STARTER_CONFIG: &str = r#"# Aysar configuration. Every line is optional; flags and AYSAR_* variables override it.
+
+# projects_dir = "/home/me/Documents/Aysar"
+# agent = "claude-code"        # claude-code | codex | aider | gemini | opencode | goose | dry-run | "cmd {prompt_file}"
+# chrome = "/usr/bin/chromium"  # found automatically when unset
+# rounds = 2
+# target_score = 85
+# max_pages = 5
+
+[llm]                           # for `aysar enrich`: any OpenAI-compatible server
+# url = "http://localhost:11434/v1"
+# model = "llama3.1"
+# key = ""
+"#;
 
 fn load_or_capture(s: &str, mode: Mode, rep: &dyn aysar_orchestrator::Reporter) -> anyhow::Result<Capture> {
     let p = PathBuf::from(s);

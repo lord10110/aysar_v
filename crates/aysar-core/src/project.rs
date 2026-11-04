@@ -52,6 +52,9 @@ pub struct ProjectState {
     pub agent: Option<String>,
     /// Latest overall similarity score, 0–100.
     pub score: Option<f32>,
+    /// When several agents competed: (agent, score).
+    #[serde(default)]
+    pub candidates: Vec<(String, Option<f32>)>,
     pub history: Vec<HistoryEntry>,
 }
 
@@ -87,6 +90,7 @@ impl Project {
             updated_at: now.clone(),
             agent: None,
             score: None,
+            candidates: vec![],
             history: vec![HistoryEntry { at: now, stage: Stage::New, note: "project created".into() }],
         };
         let p = Project { root, state };
