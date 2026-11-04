@@ -15,7 +15,7 @@ Phases are ordered so that each one ships something usable on its own. Checkboxe
 - [x] MCP server (stdio) with 5 tools; `aysar setup`
 - [x] Tests for every crate; end-to-end dry-run test; live Chromium render test (skips when no browser)
 
-## Phase 1 — Websites, end to end (in progress)
+## Phase 1 — Websites, end to end ✅
 
 Goal: beat the state of the art on the website vertical.
 
@@ -24,43 +24,48 @@ Goal: beat the state of the art on the website vertical.
 - [x] **Visual check leg**: dHash per viewport + region layout + page height + palette and font comparison; mismatches like `at 360/768/1280px: <footer> is 66px tall in the original and 18px in the build`, grouped by width.
 - [x] **Score weights** include visual (0.4 / 0.1 / 0.5).
 - [x] Headings compared by level structure first, since the builder must not copy text.
-- [ ] **State capture**: hover/focus/open-menu states recorded as extra screenshots.
-- [ ] **Behaviour check leg v1**: for each `Behavior` in the spec (forms, navigation), drive both sites and compare: does the link reach the page, does the form validate, does submit give feedback.
-- [ ] Side-by-side screenshot diff images in `checks/` (original | build | difference).
-- [ ] Capture of `robots.txt` and a polite crawl rate; `--max-pages` default stays small.
+- [x] **State capture**: hover and focus measured on nav links, buttons and inputs through real CDP mouse moves and `focus()` (open-menu states: later).
+- [x] **Behaviour check leg v1**: links fetched from inside the page, forms validated empty and filled, required counts, submit buttons, hover/focus parity; weights 0.35/0.10/0.35/0.20.
+- [x] Side-by-side pictures in `checks/` (original | build | difference).
+- [x] `robots.txt` (Allow/Disallow/Crawl-delay) and a 300 ms polite delay; `--max-pages` default stays small.
 - [ ] Tune weights against a small corpus of real sites and agent builds.
 
-## Phase 2 — Agent-agnostic for real (3 weeks)
+## Phase 2 — Agent-agnostic for real ✅ (mostly)
 
-- [ ] ACP (Agent Client Protocol) adapter so Gemini CLI, opencode, goose and others plug in without a template.
-- [ ] Verified adapters with a recorded smoke test each: Claude Code, Codex, Aider, Gemini CLI, opencode.
-- [ ] Local models for analysis and spec enrichment (Ollama / llama.cpp / any OpenAI-compatible endpoint): `aysar enrich <project>`.
-- [ ] Parallel builds: two agents on the same spec, two checks, pick the higher score (`--agents claude-code,codex`).
+- [x] Presets for Aider, Gemini CLI, opencode, goose, Qwen as command templates; `AYSAR_AGENT_<NAME>` overrides; `doctor` shows the command and whether it is verified.
+- [ ] Live verification of each preset (needs the tools installed and signed in; contributions welcome — see CONTRIBUTING).
+- [ ] ACP (Agent Client Protocol) adapter so agents plug in without a template.
+- [x] `aysar enrich`: any OpenAI-compatible endpoint adds purposes, behaviours and notes as 0.6-confidence inferences.
+- [x] Candidate builds: `--agents a,b` builds each, checks each, keeps the best (sequential today; parallel later).
+- [x] Config file with `AYSAR_*` overrides.
 - [ ] Approval cards: commands outside an allow-list stop and write to `inbox/`; `--yes` and `--answer` on the CLI.
 
-## Phase 3 — Apps (4–6 weeks)
+## Phase 3 — Apps (in progress)
 
+- [x] Self-test contract: `aysar-build.json {run, selftest}`; `check` runs it headlessly with a timeout and folds `PASS`/`FAIL` lines into the behaviour leg.
+- [x] App-specific builder deliverables (screens, flows, validation, headless self-test).
 - [ ] Engine-driven study in Deep mode through `craft-anything-cli` (functions, strings, resources, UI layouts) → `Spec` screens and flows.
 - [ ] Window capture in Clean room (a picture of the running app) → screens and visible controls.
-- [ ] Interaction recording: a short session on the original becomes `Behavior`s.
-- [ ] Behaviour checks for apps: run the build, replay the recorded session, compare outcomes.
-- [ ] Stacks: Tauri, Flutter, SwiftUI/Kotlin, web.
+- [ ] Interaction recording: a short session on the original becomes `Behavior`s; replay on the build.
 
-## Phase 4 — Games (4–6 weeks)
+## Phase 4 — Games (in progress)
 
-- [ ] Rules and physics extraction into `Spec` (entities, inputs, scoring, win/lose).
-- [ ] Builders for Bevy, Godot, Unity; a "self-test" scene the agent must make pass.
+- [x] Game-specific builder deliverables: controls, rules, scoring, win/lose, restart, each with a `PASS`/`FAIL` line; `GAMEPLAY.md`.
+- [ ] Rules and physics extraction into `Spec` from a studied original (entities, inputs, scoring).
 - [ ] Gameplay checks: scripted inputs on both, compare state traces.
 
-## Phase 5 — Workbench and desktop app (ongoing)
+## Phase 5 — Workbench ✅ (web) / desktop (later)
 
+- [x] Local dashboard `aysar ui`: projects, stages, per-leg scores, mismatches, side-by-side pictures, spec, checks, screenshots, evidence, history, new-project form, build/check buttons with live logs.
 - [ ] Evidence graph browser (what supports what; what would change if X were wrong).
-- [ ] Desktop app (egui or Tauri) with Simple and Advanced modes over the same crates.
-- [ ] Project list, inbox, approval cards, live check scores.
+- [ ] Native desktop shell (Tauri) around the same dashboard.
 
-## Phase 6 — Release and community
+## Phase 6 — Release and community (in progress)
 
-- [ ] Installers: Windows (msi), macOS (dmg, signed), Linux (AppImage, deb, rpm), FreeBSD.
+- [x] Release workflow: tags build Linux (x86_64, aarch64), macOS (arm64, x86_64) and Windows archives with checksums.
+- [x] CHANGELOG, SECURITY, CODE_OF_CONDUCT, issue and PR templates, Dependabot.
+- [x] Black-box CLI tests; CI on three platforms with Chrome.
+- [ ] Installers: msi, dmg (signed), AppImage/deb/rpm.
 - [ ] `cargo install aysar` from crates.io.
 - [ ] Contribute capture and verification improvements upstream to craft-anything where they fit.
 - [ ] Docs site; sample projects; a "beat the score" leaderboard for agents.

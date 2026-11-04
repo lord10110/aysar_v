@@ -16,12 +16,15 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/aysar-dev/aysar"
 authors = ["Aysar contributors"]
 rust-version = "1.80"
+keywords = ["reverse-engineering", "coding-agent", "mcp", "website", "rebuild"]
+categories = ["command-line-utilities", "development-tools"]
+readme = "README.md"
 
 [workspace.dependencies]
 aysar-core = { path = "crates/aysar-core" }
@@ -42,6 +45,7 @@ anyhow = "1"
 thiserror = "1"
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["derive"] }
+clap_complete = "4"
 ureq = "2"
 scraper = "0.20"
 url = "2"

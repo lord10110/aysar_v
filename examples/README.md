@@ -16,3 +16,13 @@ Then, with Claude Code or Codex installed:
 aysar build /tmp/aysar-demo/bakery-site --agent claude-code
 cat /tmp/aysar-demo/bakery-site/checks/check-001.md
 ```
+
+## selftest-contract
+
+The `aysar-build.json` contract that builders of apps and games follow. Try it:
+
+```bash
+mkdir -p /tmp/aysar-demo && aysar rebuild - "A snake game" --agent dry-run --kind game --projects-dir /tmp/aysar-demo
+cp examples/selftest-contract/* /tmp/aysar-demo/a-snake-game/app/
+aysar check /tmp/aysar-demo/a-snake-game        # behaviour 100/100 from four PASS lines
+```

@@ -2,42 +2,45 @@
 
 **English** · [العربية](README.ar.md)
 
-**See how any website, app or game works, then have a coding agent build your own — from evidence, through a reviewable spec, checked against the original.**
+**See how any website, app or game works, then have a coding agent build your own — from evidence, through a reviewable spec, checked against the original in a real browser.**
 
 Aysar is an open-source engine in pure Rust. Point it at a target, say what you want, and it:
 
-1. **Studies** the original with real inspection tools: structure, text, forms, and — in headless Chromium — screenshots at 360/768/1280px, measured colours, fonts, type scale, spacing and where every region sits (Clean room by default: only what a visitor sees).
-2. **Writes a spec** — a readable, editable intermediate specification. You can review and change it before a single line of code is written.
-3. **Builds** a new project with the coding agent you already have (Claude Code, Codex, or any command-line agent).
-4. **Checks** the build against the original — structure, content shape, and rendered visuals (screenshot hash, region layout, page height, palette and fonts at each width) — and lists what doesn't match yet, in plain sentences.
+1. **Studies** the original: structure, text, forms, and — in headless Chromium — screenshots at 360/768/1280 px, measured colours, fonts, type scale, spacing, where every region sits, which links work, how forms validate, what changes on hover. Clean room by default: only what a visitor sees.
+2. **Writes a spec** — a readable, editable intermediate specification you can review and change before a line of code is written.
+3. **Builds** a new project with the coding agent you already have: Claude Code, Codex, Aider, Gemini CLI, opencode, goose, or any command. Several at once, if you like; the best candidate wins.
+4. **Checks** the build against the original — structure, content, rendered look and behaviour — and lists what doesn't match yet, in plain sentences, with side-by-side pictures.
 5. **Refines** until the score reaches your target.
 
-Every claim Aysar makes is recorded in an evidence ledger with its source and confidence.
+Every claim is recorded in an evidence ledger with its source and confidence. A local dashboard shows it all.
 
 [![Rust](https://img.shields.io/badge/100%25-Rust-b7410e?style=flat-square&logo=rust)](#)
 [![License](https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-3a3a3a?style=flat-square)](#license)
-[![Status](https://img.shields.io/badge/status-alpha-d69e2e?style=flat-square)](docs/ROADMAP.md)
+[![Status](https://img.shields.io/badge/status-beta-2d81ff?style=flat-square)](docs/ROADMAP.md)
+
+![The Aysar dashboard: a project with its stages, five score tiles, three mismatches and a side-by-side picture](docs/images/ui-project.png)
 
 ## Why Aysar
 
-Tools like [Craft Anything](https://github.com/storytold/craft-anything) proved the idea: study, build, check. Aysar builds on that idea and on that engine where it helps, and differs in five places:
+Tools like [Craft Anything](https://github.com/storytold/craft-anything) proved the idea: study, build, check. Aysar builds on it and differs in five places:
 
 | | Aysar |
 |---|---|
-| **Spec in the middle** | Study → **Spec** → Build. The spec is a file you can read, diff and edit. The builder works from the spec, not from raw tool dumps. |
-| **Agent-agnostic** | One `Agent` trait. Claude Code and Codex are built in; any other agent is one command template away (`aider --message-file {prompt_file}`). Dry-run mode works with no AI at all. |
-| **Checked, with reasons** | Every mismatch is an actionable sentence (`/contact: form is missing fields email:email`, `/ at 360/768/1280px: <footer> is 66px tall in the original and 18px in the build`). Checks feed straight back into the next build round. |
-| **Evidence ledger** | Observations, inferences, checks and decisions, each with a source and confidence, queryable (`aysar evidence`). |
-| **Engines, not rewrites** | Disassembly and decompilation are delegated to existing engines (craft-anything first) behind one `Engine` trait. Aysar's own code is the orchestration, the spec, the verification and the gateway. |
+| **Spec in the middle** | Study → **Spec** → Build. The spec is a file you can read, diff and edit. The builder works from the spec, never from raw tool dumps or the original's files. |
+| **Checked, with reasons** | Every mismatch is an actionable sentence — `/contact: form 1 marks 1 field(s) as required; the original marks 2` — grouped by width, with original \| build \| difference pictures. Checks feed straight back into the next build round. |
+| **Agent-agnostic** | One `Agent` trait. Claude Code, Codex and five presets are built in; any other agent is one command template away. `--agents a,b` races them. Dry-run mode works with no AI at all. |
+| **Evidence ledger** | Observations, inferences, checks and decisions, each with a source and confidence, queryable from the CLI and the dashboard. |
+| **Engines, not rewrites** | Disassembly and decompilation are delegated to existing engines behind one `Engine` trait. Aysar's own code is orchestration, spec, verification, rendering and the gateway. |
 
 ## Quick start
 
-Requires Rust 1.80+. For screenshots, measured styles and visual checks, a Chrome or Chromium on the machine (found automatically; or set `AYSAR_CHROME`). Everything else works without it.
+Requires Rust 1.80+. For screenshots, measured styles, visual and behaviour checks, a Chrome or Chromium on the machine (found automatically; or set `AYSAR_CHROME`). Everything else works without it.
 
 ```bash
 git clone https://github.com/aysar-dev/aysar && cd aysar
 cargo install --path apps/aysar-cli      # installs `aysar`
 aysar doctor                             # what's installed, where projects go
+aysar ui                                 # the dashboard, on 127.0.0.1:7331
 ```
 
 Study something (no project created, nothing built):
@@ -53,15 +56,16 @@ Rebuild something:
 ```bash
 aysar rebuild https://example.com "Recreate this website in plain HTML"
 aysar rebuild - "A snake game in Rust with Bevy" --kind game
-aysar rebuild ./my-old-site "Rebuild this with Astro and Tailwind" --agent codex --rounds 3
+aysar rebuild ./my-old-site "Rebuild this with Astro and Tailwind" --agents claude-code,codex --rounds 3
 ```
 
 Then, on the project folder it prints:
 
 ```bash
-aysar status   <project>      # stage, score, history
-aysar check    <project>      # re-check after manual edits
-aysar build    <project>      # one more refinement round
+aysar status   <project>        # stage, score, candidates, history
+aysar check    <project>        # re-check after manual edits (adds pictures to checks/)
+aysar build    <project>        # one more refinement round
+aysar enrich   <project>        # let a local model add purposes and behaviours
 aysar evidence <project> --kind check
 ```
 
@@ -71,21 +75,40 @@ Compare any two sites without a project:
 aysar compare https://original.example ./my-build
 ```
 
+The full command reference is in [docs/CLI.md](docs/CLI.md).
+
 ### Clean room or Deep
 
-- **Clean room** (default): Aysar reads only what a visitor sees — titles, headings, links, forms, visible text, landmarks, image counts, and what the rendered page looks like (screenshots, measured colours, fonts, spacing, layout). Stylesheets, scripts, source and binaries are **not** read. Tools that would look inside refuse and tell you how to switch.
+- **Clean room** (default): Aysar reads only what a visitor sees — titles, headings, links, forms, visible text, landmarks, image counts, and what the rendered page looks like and does (screenshots, measured colours, fonts, spacing, layout, working links, form validation, hover and focus states). Stylesheets, scripts, source and binaries are **not** read. Tools that would look inside refuse and tell you how to switch.
 - **Deep** (`--deep`): everything is read, for your private use — styles, scripts, raw HTML, and binaries through the analysis engine.
 
 ### Coding agents
 
 Build needs a coding agent on your machine. Aysar runs *your* agent with *your* sign-in and never handles your account.
 
-| Agent | How Aysar runs it | Select with |
+| Agent | Command Aysar runs | Status |
 |---|---|---|
-| Claude Code | `claude -p <prompt> --permission-mode acceptEdits` (override: `AYSAR_CLAUDE_ARGS`) | `--agent claude-code` |
-| Codex | `codex exec --full-auto <prompt>` (override: `AYSAR_CODEX_ARGS`) | `--agent codex` |
-| Anything else | your command, with `{prompt}` / `{prompt_file}` | `--agent "aider --message-file {prompt_file} --yes"` |
-| None | writes `app/BUILD-PROMPT.md` and stops | `--agent dry-run` |
+| `claude-code` | `claude -p <prompt> --permission-mode acceptEdits` | verified live |
+| `codex` | `codex exec --full-auto <prompt>` | preset |
+| `aider` | `aider --message-file {prompt_file} --yes-always --no-git --no-auto-commits` | preset |
+| `gemini` | `gemini --yolo -p <prompt>` | preset |
+| `opencode` | `opencode run <prompt>` | preset |
+| `goose` | `goose run --text <prompt>` | preset |
+| `qwen` | `qwen --yolo -p <prompt>` | preset |
+| anything | `--agent "your-cmd --file {prompt_file}"` | — |
+| `dry-run` | writes `app/BUILD-PROMPT.md` and stops | verified |
+
+"Preset" means the command follows the tool's documented flags but has not yet been run live by us; override any with `AYSAR_AGENT_<NAME>`. `aysar doctor` shows which are installed.
+
+### Apps and games
+
+Websites are driven in a browser. For apps and games the builder is asked to ship an `aysar-build.json`:
+
+```json
+{ "run": "cargo run --release", "selftest": "cargo test --release", "notes": "…" }
+```
+
+`check` runs the self-test headlessly with a timeout; `PASS …` / `FAIL …` lines become the behaviour score and the mismatch list. Games must also document their rules in `GAMEPLAY.md`.
 
 ### For agents (MCP)
 
@@ -96,17 +119,20 @@ aysar setup                               # prints the config snippet
 claude mcp add aysar -- aysar mcp         # Claude Code, one line
 ```
 
-Tools: `aysar_study`, `aysar_identify`, `aysar_rebuild`, `aysar_check`, `aysar_doctor`.
+### Configuration
+
+`aysar config --init` writes `~/.config/aysar/config.toml` (projects folder, default agent, Chromium path, rounds, target score, model endpoint for `enrich`). Flags and `AYSAR_*` variables override it.
 
 ## Project layout
 
 ```
 ~/Documents/Aysar/<name>/
-  aysar.json          request, target, mode, stage, score, history
+  aysar.json          request, target, mode, stage, score, candidates, history
   capture/            capture.json, screenshots/<page>-<width>.png (+ raw/ in Deep mode)
   spec/               spec.json, spec.md, prompt-round-N.md
-  app/                the generated project
-  checks/             check-001.json / .md, check-001-screenshots/, …
+  app/                the generated project (aysar-build.json for apps and games)
+  candidates/<agent>/ one folder per competing agent, when --agents was used
+  checks/             check-NNN.json / .md, check-NNN-screenshots/*-diff.png
   evidence/           ledger.jsonl
   inbox/              open questions for you
 ```
@@ -115,39 +141,33 @@ Tools: `aysar_study`, `aysar_identify`, `aysar_rebuild`, `aysar_check`, `aysar_d
 
 ```
 crates/
-  aysar-core          Mode, Target, Capture, Spec, Evidence, Project
-  aysar-capture       websites over HTTP and local HTML, Clean room / Deep
+  aysar-core          Mode, Target, Capture (+ viewports, styles, probes), Spec, Evidence, Project
+  aysar-capture       websites over HTTP (robots.txt, polite delay) and local HTML
+  aysar-render        headless Chromium: screenshots, layout boxes, measured styles, link/form/hover probes, diff pictures, static server
   aysar-analysis      Engine trait + craft-anything adapter + file identification
-  aysar-spec          capture → spec (deterministic, reproducible)
-  aysar-build         Agent trait, Claude Code / Codex / Script / DryRun, prompt builder
-  aysar-verify        structure + content + visual comparison, actionable mismatches
-  aysar-render        headless Chromium: screenshots, layout boxes, measured styles; static server
-  aysar-orchestrator  Study → Spec → Build → Check → Refine
+  aysar-spec          capture → spec (deterministic), design-system extraction
+  aysar-enrich        optional model enrichment through any OpenAI-compatible endpoint
+  aysar-build         Agent trait, Claude Code / Codex / presets / templates / dry run, prompt builder
+  aysar-verify        structure + content + visual + behaviour comparison, actionable mismatches
+  aysar-orchestrator  Study → Spec → Build → Check → Refine, candidates, self-tests, config
   aysar-mcp           stdio MCP server
+  aysar-ui            local dashboard
 apps/
-  aysar-cli           the `aysar` binary
-docs/                 ARCHITECTURE, ROADMAP, SPEC-FORMAT
+  aysar-cli           the `aysar` binary (+ black-box tests)
+docs/                 ARCHITECTURE, ROADMAP, SPEC-FORMAT, CLI
 ```
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the pieces fit and [docs/ROADMAP.md](docs/ROADMAP.md) for what's next (behaviour checks, app and game verticals, desktop app).
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the pieces fit, [docs/SPEC-FORMAT.md](docs/SPEC-FORMAT.md) for the spec, and [docs/ROADMAP.md](docs/ROADMAP.md) for what's next.
 
 ## Status
 
-Alpha. What works today, verified by tests and a dry run on a sample site:
+Beta. Everything in the quick start works today and is covered by tests (unit, live-Chromium, and black-box CLI tests) and a GitHub Actions matrix on Linux, macOS and Windows. See [CHANGELOG.md](CHANGELOG.md).
 
-- Website study (HTTP and local), Clean room and Deep.
-- Rendering in headless Chromium: full-page screenshots at 360/768/1280px, region boxes, measured colours/fonts/type scale/spacing/radii.
-- Deterministic spec generation with a measured design system, per-width layout, behaviours and rules.
-- Build through Claude Code, Codex, any command template, or dry run.
-- Structure, content and visual checks with actionable mismatches (grouped by width); refinement rounds that feed the last check back to the builder.
-- Evidence ledger; project state and history.
-- CLI and MCP server.
-
-Not yet: behaviour checks (clicking, submitting), hover/focus states, engine-driven app/game study, desktop app. These are the next phases in the roadmap.
+Not yet: engine-driven study of app and game binaries (the `Engine` trait is ready; it needs `craft-anything-cli` installed and Deep mode), multi-step user journeys in behaviour checks, a native desktop shell (the dashboard is a local web page), and live verification of the agent presets other than Claude Code.
 
 ## Responsible use
 
-Use Aysar on software you own or are allowed to examine. It never bypasses logins, DRM, rate limits or anti-cheat. Builds recreate structure, style and behaviour from evidence; the builder is told not to copy logos, photos or text.
+Use Aysar on software you own or are allowed to examine. It respects `robots.txt`, never bypasses logins, DRM, rate limits or anti-cheat, and never submits a form on a site it studies. Builds recreate structure, style and behaviour from evidence; the builder is told not to copy logos, photos or text.
 
 ## License
 

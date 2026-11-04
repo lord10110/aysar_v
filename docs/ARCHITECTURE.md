@@ -4,8 +4,7 @@ Aysar is a pipeline with a spec in the middle and evidence underneath.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  Interfaces      aysar (CLI)   ·   aysar mcp (MCP server)        │
-│                  desktop app (planned, phase 5)                  │
+│  Interfaces   aysar (CLI) · aysar mcp (MCP server) · aysar ui    │
 ├─────────────────────────────────────────────────────────────────┤
 │  Orchestrator    study → specify → build → check → (refine)     │
 │                  each step is a function; the loop is `rebuild` │
@@ -53,7 +52,9 @@ Aysar is a pipeline with a spec in the middle and evidence underneath.
 | `aysar-build` | core | `Agent` trait and adapters; `prompt::build_prompt(spec, round, previous_check, existing_files)`. |
 | `aysar-verify` | core | `compare(original, build) -> Report`; per-page scores and mismatches. |
 | `aysar-orchestrator` | all above | `new_project`, `study`, `specify`, `build`, `check`, `rebuild`; `Reporter` for progress. |
-| `aysar-mcp` | core, capture, analysis, orchestrator, build | stdio JSON-RPC 2.0 server; `handle(req)` is pure and tested. |
+| `aysar-enrich` | core, ureq | `ask(cfg, spec)` → `Enrichment`; `merge()` adds purposes/behaviours/notes as 0.6-confidence inferences. Any OpenAI-compatible endpoint. |
+| `aysar-mcp` | core, capture, analysis, orchestrator, build, render | stdio JSON-RPC 2.0 server; `handle(req)` is pure and tested. |
+| `aysar-ui` | core, orchestrator, build, render, tiny_http | loopback HTTP + JSON API + one embedded page; jobs run on threads and stream logs. |
 | `aysar-cli` | everything | `clap` front end. |
 
 ## Data flow for `aysar rebuild <target> "<request>"`
@@ -98,9 +99,14 @@ With a renderer: `score = 0.40 × structure + 0.10 × content + 0.50 × visual`.
 
 Mismatch sentences that repeat at several widths are merged (`at 360/768/1280px`).
 
-Reserved: **behaviour** — drive both sites (click, fill, submit, navigate), extract a state machine each, compare.
+- `behaviour`, per page, from the probes (`aysar-render::probe`): share of the original's working links that work in the build, build-only dead links, per-form required count / blocks-empty / accepts-filled / has-submit parity, hover and focus parity. With all four legs: `0.35 × structure + 0.10 × content + 0.35 × visual + 0.20 × behaviour` (`verify::blend`).
+- For apps and games, the self-test declared in `aysar-build.json` is the behaviour leg (`orchestrator::selftest`); with no original to compare against it is the whole score.
 
 Similarities: Jaccard over token or item sets; LCS/max-length for ordered sequences; min/max ratio for counts; Hamming distance for hashes.
+
+## Jobs and the dashboard
+
+`aysar-ui` runs `check`, `build` and `rebuild` on threads with a `Reporter` that appends to a job log; the page polls `/api/jobs`. Everything the page shows comes from the project folder, so the CLI and the dashboard never disagree.
 
 ## Extending
 

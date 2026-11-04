@@ -1,0 +1,5 @@
+{
+  "run": "sh ./play.sh",
+  "selftest": "sh ./selftest.sh",
+  "notes": "A minimal example of the contract apps and games follow. Each check prints PASS or FAIL; exit code 0 means all passed."
+}

@@ -7,6 +7,9 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 rust-version.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme.workspace = true
 
 [[bin]]
 name = "aysar"
@@ -26,7 +29,11 @@ aysar-orchestrator.workspace = true
 aysar-mcp.workspace = true
 anyhow.workspace = true
 clap.workspace = true
+clap_complete.workspace = true
 serde_json.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+[dev-dependencies]
+serde_json.workspace = true

@@ -39,6 +39,14 @@ CI runs exactly those four commands on Linux, macOS and Windows.
 - One PR per idea. Describe what changes for the user, not only the code.
 - Run the four commands above before opening the PR.
 
+## Verifying an agent preset
+
+`aysar doctor` marks presets that nobody has run live yet. To verify one: install the tool, sign in, run `aysar rebuild ./examples/bakery-site "Recreate this website" --agent <name> --rounds 1`, and open a PR that flips its `verified` flag in `crates/aysar-build/src/lib.rs` with the command output in the description.
+
+## Releasing
+
+Tag `vX.Y.Z` on `main`; the release workflow builds archives for five targets, attaches `SHA256SUMS.txt` and drafts notes from the commits. Bump `version` in the workspace `Cargo.toml` and add a CHANGELOG entry first.
+
 ## Reporting a bug
 
 Open an issue with: the command you ran, the target (or a minimal stand-in), `aysar doctor` output, and the relevant `checks/*.md` or `evidence/ledger.jsonl` lines.

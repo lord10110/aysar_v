@@ -6,7 +6,7 @@ use aysar_core::evidence::Ledger;
 use aysar_core::project::Project;
 use aysar_core::{Kind, Mode, Target};
 use aysar_orchestrator::{RebuildOptions, Stdout};
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -113,7 +113,12 @@ enum Cmd {
         agent: Option<String>,
     },
     /// Check an existing project's build against its original.
-    Check { project: PathBuf },
+    Check {
+        project: PathBuf,
+        /// Print the report as JSON instead of a summary.
+        #[arg(long)]
+        json: bool,
+    },
     /// Compare two captures or sites directly, without a project.
     Compare {
         /// Original: URL, local path, or a capture.json.
@@ -122,7 +127,12 @@ enum Cmd {
         build: String,
     },
     /// Show a project's state, score and history.
-    Status { project: PathBuf },
+    Status {
+        project: PathBuf,
+        /// Print the state as JSON.
+        #[arg(long)]
+        json: bool,
+    },
     /// Print the evidence ledger of a project.
     Evidence {
         project: PathBuf,
@@ -145,6 +155,11 @@ enum Cmd {
         /// Projects folder (default: config, else ~/Documents/Aysar).
         #[arg(long)]
         projects_dir: Option<PathBuf>,
+    },
+    /// Print shell completions (bash, zsh, fish, powershell, elvish).
+    Completions {
+        #[arg(value_enum)]
+        shell: clap_complete::Shell,
     },
     /// Show the configuration file, or write a starter one with `--init`.
     Config {
@@ -310,9 +325,14 @@ fn run() -> anyhow::Result<()> {
             aysar_orchestrator::check(&mut p, &rep)?;
         }
 
-        Cmd::Check { project } => {
+        Cmd::Check { project, json } => {
             let mut p = Project::open(&project).context("open project")?;
-            aysar_orchestrator::check(&mut p, &rep)?;
+            if json {
+                let r = aysar_orchestrator::check(&mut p, &aysar_orchestrator::Quiet)?;
+                println!("{}", serde_json::to_string_pretty(&r)?);
+            } else {
+                aysar_orchestrator::check(&mut p, &rep)?;
+            }
         }
 
         Cmd::Compare { original, build } => {
@@ -322,8 +342,12 @@ fn run() -> anyhow::Result<()> {
             println!("{}", r.to_markdown());
         }
 
-        Cmd::Status { project } => {
+        Cmd::Status { project, json } => {
             let p = Project::open(&project).context("open project")?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&p.state)?);
+                return Ok(());
+            }
             let s = &p.state;
             println!("{} — {:?}", s.name, s.stage);
             println!("  request: {}", s.request);
@@ -390,6 +414,10 @@ fn run() -> anyhow::Result<()> {
                     open_browser(&url);
                 }
             })?;
+        }
+
+        Cmd::Completions { shell } => {
+            clap_complete::generate(shell, &mut Cli::command(), "aysar", &mut std::io::stdout());
         }
 
         Cmd::Config { init } => {

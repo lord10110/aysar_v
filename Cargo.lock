@@ -123,7 +123,7 @@ checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 
 [[package]]
 name = "aysar-analysis"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "aysar-core",
@@ -133,7 +133,7 @@ dependencies = [
 
 [[package]]
 name = "aysar-build"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "aysar-core",
@@ -143,7 +143,7 @@ dependencies = [
 
 [[package]]
 name = "aysar-capture"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "aysar-core",
@@ -156,7 +156,7 @@ dependencies = [
 
 [[package]]
 name = "aysar-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "aysar-analysis",
@@ -171,13 +171,14 @@ dependencies = [
  "aysar-ui",
  "aysar-verify",
  "clap",
+ "clap_complete",
  "libc",
  "serde_json",
 ]
 
 [[package]]
 name = "aysar-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -190,7 +191,7 @@ dependencies = [
 
 [[package]]
 name = "aysar-enrich"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "aysar-core",
@@ -202,7 +203,7 @@ dependencies = [
 
 [[package]]
 name = "aysar-mcp"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "aysar-analysis",
@@ -217,7 +218,7 @@ dependencies = [
 
 [[package]]
 name = "aysar-orchestrator"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "aysar-analysis",
@@ -234,7 +235,7 @@ dependencies = [
 
 [[package]]
 name = "aysar-render"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "aysar-core",
@@ -247,7 +248,7 @@ dependencies = [
 
 [[package]]
 name = "aysar-spec"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "aysar-core",
@@ -256,7 +257,7 @@ dependencies = [
 
 [[package]]
 name = "aysar-ui"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "aysar-build",
@@ -270,7 +271,7 @@ dependencies = [
 
 [[package]]
 name = "aysar-verify"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "aysar-core",
@@ -402,6 +403,15 @@ dependencies = [
  "anstyle",
  "clap_lex",
  "strsim",
+]
+
+[[package]]
+name = "clap_complete"
+version = "4.6.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "037e2a1a92236d0aff7e845093f64661d6df4c02c9fcc61a60e9e1d736fa392f"
+dependencies = [
+ "clap",
 ]
 
 [[package]]
