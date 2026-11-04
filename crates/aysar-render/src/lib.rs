@@ -142,10 +142,19 @@ impl Renderer {
     }
 
     pub fn launch_with(chrome: &Path) -> anyhow::Result<Renderer> {
+        // Prefer Chromium's sandbox; it is refused when running as root (containers),
+        // so fall back to no sandbox only if the first launch fails.
+        match Self::launch_opts(chrome, true) {
+            Ok(r) => Ok(r),
+            Err(_) => Self::launch_opts(chrome, false),
+        }
+    }
+
+    fn launch_opts(chrome: &Path, sandbox: bool) -> anyhow::Result<Renderer> {
         let opts = LaunchOptions::default_builder()
             .path(Some(chrome.to_path_buf()))
             .headless(true)
-            .sandbox(false)
+            .sandbox(sandbox)
             .idle_browser_timeout(Duration::from_secs(120))
             .window_size(Some((1280, 900)))
             .args(vec![
@@ -178,6 +187,7 @@ impl Renderer {
     ) -> anyhow::Result<Rendered> {
         let mut out = Rendered::default();
         let mut widest_sampled: u32 = 0;
+        let widest = opts.widths.iter().copied().max().unwrap_or(0);
 
         for &width in &opts.widths {
             tab.set_bounds(headless_chrome::types::Bounds::Normal {
@@ -235,7 +245,8 @@ impl Renderer {
             if width >= widest_sampled {
                 out.style = to_style_sample(&measured);
                 widest_sampled = width;
-                if opts.probe {
+                // Probe exactly once, at the widest viewport.
+                if opts.probe && width == widest {
                     // Back to a normal viewport so "in view" means something for hover targets.
                     set_metrics(tab, width, 900)?;
                     std::thread::sleep(Duration::from_millis(80));

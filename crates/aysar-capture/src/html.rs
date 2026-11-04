@@ -197,6 +197,10 @@ pub fn extract_colors(css: &str) -> Vec<String> {
     let bytes = css.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
+        if !css.is_char_boundary(i) {
+            i += 1;
+            continue;
+        }
         if bytes[i] == b'#' {
             let start = i + 1;
             let mut j = start;
@@ -278,6 +282,16 @@ mod tests {
         assert!(p.landmarks.contains(&"main".to_string()));
         assert!(p.colors.is_empty());
         assert!(p.stylesheets.is_empty());
+    }
+
+    #[test]
+    fn colours_survive_non_ascii_css() {
+        let css =
+            "a{content:\"→\";color:#abc} /* — dash — */ b{background:rgb(1,2,3);font-family:'Noto Sans Arabic', serif}";
+        let c = extract_colors(css);
+        assert!(c.contains(&"#aabbcc".to_string()) || c.contains(&"#abc".to_string()), "{c:?}");
+        assert!(c.contains(&"rgb(1,2,3)".to_string()));
+        assert!(extract_fonts(css).contains(&"Noto Sans Arabic".to_string()));
     }
 
     #[test]

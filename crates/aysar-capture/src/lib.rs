@@ -226,7 +226,7 @@ fn collect_html(dir: &Path, out: &mut Vec<PathBuf>, depth: usize) -> anyhow::Res
     for e in fs::read_dir(dir)?.flatten() {
         let p = e.path();
         let name = e.file_name().to_string_lossy().to_string();
-        if name.starts_with('.') || name == "node_modules" || name == "target" || name == "dist" && depth == 0 {
+        if name.starts_with('.') || name == "node_modules" || name == "target" {
             continue;
         }
         if p.is_dir() {

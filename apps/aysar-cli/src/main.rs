@@ -155,6 +155,9 @@ enum Cmd {
         /// Projects folder (default: config, else ~/Documents/Aysar).
         #[arg(long)]
         projects_dir: Option<PathBuf>,
+        /// Address to listen on. Anything but 127.0.0.1 exposes a page with no login that can run builds.
+        #[arg(long, default_value = "127.0.0.1")]
+        bind: String,
     },
     /// Print shell completions (bash, zsh, fish, powershell, elvish).
     Completions {
@@ -403,11 +406,14 @@ fn run() -> anyhow::Result<()> {
 
         Cmd::Mcp => aysar_mcp::serve_stdio()?,
 
-        Cmd::Ui { port, no_open, projects_dir } => {
+        Cmd::Ui { port, no_open, projects_dir, bind } => {
             let dir =
                 projects_dir.or(cfg.projects_dir.clone()).unwrap_or_else(aysar_orchestrator::default_projects_dir);
             std::fs::create_dir_all(&dir)?;
-            aysar_ui::Ui::new(dir).serve(port, move |bound| {
+            if bind != "127.0.0.1" && bind != "localhost" {
+                eprintln!("warning: listening on {bind}; the dashboard has no login and can run builds.");
+            }
+            aysar_ui::Ui::new(dir).allow_host(&bind).serve_on(&bind, port, move |bound| {
                 let url = format!("http://127.0.0.1:{bound}/");
                 println!("Aysar dashboard: {url}  (Ctrl+C to stop)");
                 if !no_open {

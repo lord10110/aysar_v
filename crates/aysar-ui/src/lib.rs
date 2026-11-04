@@ -11,9 +11,15 @@
 //! - `GET  /api/jobs`                          background jobs and their logs
 //! - `GET  /api/doctor`
 //!
-//! Jobs run on a thread; the page polls `/api/jobs`. Nothing listens on
-//! anything but loopback, and there is no authentication, so this is for the
-//! machine it runs on.
+//! Jobs run on a thread; the page polls `/api/jobs`.
+//!
+//! Safety: the page has no login, so it defends itself against other web
+//! pages on the same machine. Every request must carry a `Host` header for
+//! loopback (defeats DNS rebinding); every POST must be `application/json`
+//! and carry `X-Aysar: 1` (forces a CORS preflight, which we never answer, so
+//! a cross-origin page cannot trigger a job); project names are a strict
+//! character set; the agent chosen from the page must be a known name, never
+//! a command template; one job per project at a time.
 
 use aysar_core::evidence::Ledger;
 use aysar_core::project::Project;
@@ -67,17 +73,57 @@ impl Reporter for JobReporter {
 pub struct Ui {
     pub projects_dir: PathBuf,
     jobs: Arc<Mutex<Jobs>>,
+    /// Projects with a job running right now.
+    busy: Arc<Mutex<std::collections::HashSet<String>>>,
+    /// Hosts we answer to. Loopback by default; `--bind` adds the bind address.
+    allowed_hosts: Vec<String>,
 }
 
 impl Ui {
     pub fn new(projects_dir: PathBuf) -> Ui {
-        Ui { projects_dir, jobs: Arc::new(Mutex::new(Jobs::default())) }
+        Ui {
+            projects_dir,
+            jobs: Arc::new(Mutex::new(Jobs::default())),
+            busy: Arc::new(Mutex::new(Default::default())),
+            allowed_hosts: vec!["127.0.0.1".into(), "localhost".into(), "[::1]".into()],
+        }
+    }
+
+    /// Also answer requests whose `Host` is this name (for `--bind`).
+    pub fn allow_host(mut self, host: &str) -> Ui {
+        self.allowed_hosts.push(host.to_string());
+        self
+    }
+
+    fn host_ok(&self, req: &Request) -> bool {
+        let host = req.headers().iter().find(|h| h.field.equiv("host")).map(|h| h.value.as_str().to_string());
+        let Some(host) = host else { return false };
+        let name = if host.starts_with('[') {
+            host.split(']').next().map(|s| format!("{s}]")).unwrap_or_default()
+        } else {
+            host.split(':').next().unwrap_or("").to_string()
+        };
+        self.allowed_hosts.iter().any(|h| h.eq_ignore_ascii_case(&name)) || name == "0.0.0.0"
+    }
+
+    fn post_ok(req: &Request) -> bool {
+        let ct =
+            req.headers().iter().find(|h| h.field.equiv("content-type")).map(|h| h.value.as_str().to_ascii_lowercase());
+        let marker = req.headers().iter().any(|h| h.field.equiv("x-aysar"));
+        marker && ct.map(|c| c.starts_with("application/json")).unwrap_or(false)
     }
 
     /// Serve forever on `port` (0 = any free port). Returns the bound port
     /// through `on_ready` before blocking.
     pub fn serve(self, port: u16, on_ready: impl FnOnce(u16)) -> anyhow::Result<()> {
-        let server = Server::http(("127.0.0.1", port)).map_err(|e| anyhow::anyhow!("{e}"))?;
+        self.serve_on("127.0.0.1", port, on_ready)
+    }
+
+    /// Serve on a specific address. Anything but loopback exposes an
+    /// unauthenticated page that can run builds; only do that inside a
+    /// container or a trusted network.
+    pub fn serve_on(self, bind: &str, port: u16, on_ready: impl FnOnce(u16)) -> anyhow::Result<()> {
+        let server = Server::http((bind, port)).map_err(|e| anyhow::anyhow!("{e}"))?;
         let bound = server.server_addr().to_ip().map(|a| a.port()).unwrap_or(port);
         on_ready(bound);
         let ui = Arc::new(self);
@@ -95,8 +141,16 @@ impl Ui {
         let url = req.url().to_string();
         let path = url.split('?').next().unwrap_or("/").to_string();
         let method = req.method().clone();
+        if !self.host_ok(&req) {
+            req.respond(error(403, "requests must come from this machine (Host must be 127.0.0.1 or localhost)"))?;
+            return Ok(());
+        }
         let mut body = String::new();
         if method == Method::Post {
+            if !Self::post_ok(&req) {
+                req.respond(error(415, "POST needs Content-Type: application/json and an X-Aysar header"))?;
+                return Ok(());
+            }
             let _ = req.as_reader().read_to_string(&mut body);
         }
         let resp = match (method, path.as_str()) {
@@ -115,7 +169,7 @@ impl Ui {
                     None => (rest, ""),
                 };
                 let name = percent_decode(name);
-                if name.contains("..") || name.contains('/') {
+                if !valid_project_name(&name) {
                     error(400, "bad project name")
                 } else {
                     match (m, sub) {
@@ -298,11 +352,25 @@ impl Ui {
         }
     }
 
+    /// Mark a project busy; `None` if it already is.
+    fn claim(&self, name: &str) -> Option<BusyGuard> {
+        let mut b = self.busy.lock().ok()?;
+        if !b.insert(name.to_string()) {
+            return None;
+        }
+        Some(BusyGuard { busy: self.busy.clone(), name: name.to_string() })
+    }
+
     fn start_check(&self, name: &str) -> Value {
+        if !self.projects_dir.join(name).join(aysar_core::project::STATE_FILE).exists() {
+            return json!({"error": "no such project"});
+        }
+        let Some(guard) = self.claim(name) else { return json!({"error": "a job is already running on this project"}) };
         let id = self.new_job(&format!("Check {name}"), Some(name.into()));
         let root = self.projects_dir.join(name);
         let jobs = self.jobs.clone();
         std::thread::spawn(move || {
+            let _guard = guard;
             let rep = JobReporter { jobs: jobs.clone(), id };
             let r = Project::open(&root).and_then(|mut p| aysar_orchestrator::check(&mut p, &rep).map(|_| ()));
             Self::finish(&jobs, id, r.is_ok(), r.err().map(|e| format!("error: {e:#}")));
@@ -311,20 +379,30 @@ impl Ui {
     }
 
     fn start_build(&self, name: &str, body: &str) -> Value {
+        if !self.projects_dir.join(name).join(aysar_core::project::STATE_FILE).exists() {
+            return json!({"error": "no such project"});
+        }
         let agent = serde_json::from_str::<Value>(body)
             .ok()
             .and_then(|v| v["agent"].as_str().map(|s| s.to_string()))
             .filter(|s| !s.is_empty());
+        if let Some(a) = &agent {
+            if !known_agent(a) {
+                return json!({"error": "the dashboard only accepts known agent names; use the CLI for command templates"});
+            }
+        }
+        let Some(guard) = self.claim(name) else { return json!({"error": "a job is already running on this project"}) };
         let id = self.new_job(&format!("Build {name}"), Some(name.into()));
         let root = self.projects_dir.join(name);
         let jobs = self.jobs.clone();
         std::thread::spawn(move || {
+            let _guard = guard;
             let rep = JobReporter { jobs: jobs.clone(), id };
             let r = (|| -> anyhow::Result<()> {
                 let mut p = Project::open(&root)?;
                 let round = p.next_check_number();
                 let prev = aysar_orchestrator::latest_report(&p)?;
-                let agent = agent.or_else(|| p.state.agent.clone());
+                let agent = agent.or_else(|| p.state.agent.clone()).filter(|a| known_agent(a));
                 let out = aysar_orchestrator::build(&mut p, agent.as_deref(), round, prev.as_ref(), &rep)?;
                 if out.agent != "dry-run" {
                     aysar_orchestrator::check(&mut p, &rep)?;
@@ -351,8 +429,14 @@ impl Ui {
         };
         let mode = if v["deep"].as_bool().unwrap_or(false) { Mode::Deep } else { Mode::CleanRoom };
         let agent = v["agent"].as_str().map(|s| s.to_string()).filter(|s| !s.is_empty());
+        if let Some(a) = &agent {
+            if !known_agent(a) {
+                anyhow::bail!("the dashboard only accepts known agent names; use the CLI for command templates");
+            }
+        }
         let mut p = aysar_orchestrator::new_project(&self.projects_dir, target, &request, mode, kind)?;
         let name = p.state.name.clone();
+        let guard = self.claim(&name).ok_or_else(|| anyhow::anyhow!("a job is already running on this project"))?;
         let id = self.new_job(&format!("Rebuild {name}"), Some(name.clone()));
         let jobs = self.jobs.clone();
         let cfg = aysar_orchestrator::config::Config::load();
@@ -365,12 +449,48 @@ impl Ui {
             ..Default::default()
         };
         std::thread::spawn(move || {
+            let _guard = guard;
             let rep = JobReporter { jobs: jobs.clone(), id };
             let r = aysar_orchestrator::rebuild(&mut p, &opts, &rep);
             Self::finish(&jobs, id, r.is_ok(), r.err().map(|e| format!("error: {e:#}")));
         });
         Ok(json!({"job": id, "project": name}))
     }
+}
+
+struct BusyGuard {
+    busy: Arc<Mutex<std::collections::HashSet<String>>>,
+    name: String,
+}
+
+impl Drop for BusyGuard {
+    fn drop(&mut self) {
+        if let Ok(mut b) = self.busy.lock() {
+            b.remove(&self.name);
+        }
+    }
+}
+
+/// Project folders are made by `slugify`: lower-case letters, digits, `-`.
+/// Anything else (`..`, `/`, `\`, `:`, spaces) is refused before it touches a path.
+pub fn valid_project_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 80
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+        && !name.starts_with('.')
+        && !name.contains("..")
+}
+
+/// Only names `aysar_build::select` knows, never a command template.
+fn known_agent(a: &str) -> bool {
+    let a = a.to_ascii_lowercase();
+    a == "auto"
+        || a == "claude"
+        || a == "claude-code"
+        || a == "codex"
+        || a == "dry-run"
+        || a == "none"
+        || aysar_build::PRESETS.iter().any(|(n, _, _)| *n == a)
 }
 
 fn html(s: &str) -> Response<std::io::Cursor<Vec<u8>>> {
@@ -411,9 +531,19 @@ mod tests {
     use super::*;
     use std::io::{Read, Write};
 
+    fn raw(port: u16, request: &str) -> (u16, String) {
+        let mut st = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+        st.write_all(request.as_bytes()).unwrap();
+        let mut s = String::new();
+        st.read_to_string(&mut s).unwrap();
+        let code: u16 = s.split_whitespace().nth(1).unwrap().parse().unwrap();
+        let body = s.split("\r\n\r\n").nth(1).unwrap_or("").to_string();
+        (code, body)
+    }
+
     fn get(port: u16, path: &str) -> (u16, String) {
         let mut st = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
-        write!(st, "GET {path} HTTP/1.0\r\nHost: x\r\n\r\n").unwrap();
+        write!(st, "GET {path} HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n").unwrap();
         let mut s = String::new();
         st.read_to_string(&mut s).unwrap();
         let code: u16 = s.split_whitespace().nth(1).unwrap().parse().unwrap();
@@ -457,6 +587,25 @@ mod tests {
         let (code, body) = get(port, "/api/doctor");
         assert_eq!(code, 200);
         assert!(body.contains("\"agents\""));
+
+        // DNS rebinding: a foreign Host is refused.
+        let (code, _) = raw(port, "GET /api/projects HTTP/1.0\r\nHost: evil.example\r\n\r\n");
+        assert_eq!(code, 403);
+        // CSRF: a "simple" cross-origin POST (no JSON type, no marker header) is refused.
+        let (code, _) = raw(port, "POST /api/projects/demo/check HTTP/1.0\r\nHost: 127.0.0.1\r\nContent-Type: text/plain\r\nContent-Length: 2\r\n\r\n{}");
+        assert_eq!(code, 415);
+        // Templates are not accepted from the page.
+        let body = r#"{"agent":"sh -c id {prompt}"}"#;
+        let (code, out) = raw(port, &format!("POST /api/projects/demo/build HTTP/1.0\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nX-Aysar: 1\r\nContent-Length: {}\r\n\r\n{}", body.len(), body));
+        assert_eq!(code, 200);
+        assert!(out.contains("known agent names"), "{out}");
+        // Windows-style and absolute names are refused before any path is built.
+        for bad in ["C:%5C", "..%2Fx", "a%2Fb", ".hidden", "name with space"] {
+            let (code, _) = get(port, &format!("/api/projects/{bad}"));
+            assert_eq!(code, 400, "{bad}");
+        }
+        assert!(valid_project_name("nablus-bakery-2"));
+        assert!(!valid_project_name("C:\\"));
         let _ = std::fs::remove_dir_all(dir);
     }
 }

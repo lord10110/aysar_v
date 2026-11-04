@@ -64,10 +64,36 @@ impl Agent for ClaudeCode {
         which(&self.binary)
     }
     fn run(&self, workdir: &Path, prompt: &str) -> anyhow::Result<BuildOutput> {
-        let mut cmd = Command::new(&self.binary);
-        cmd.current_dir(workdir).arg("-p").arg(prompt).args(&self.extra_args);
+        let mut cmd = command_for(&self.binary);
+        cmd.current_dir(workdir);
+        if cfg!(windows) && prompt.len() > 24_000 {
+            // Windows command lines are capped at 32 K: hand the prompt over on stdin.
+            cmd.arg("-p").arg("Carry out the build instructions that follow on standard input.").args(&self.extra_args);
+            return run_command_with_stdin(self.name(), cmd, workdir, prompt);
+        }
+        cmd.arg("-p").arg(prompt).args(&self.extra_args);
         run_command(self.name(), cmd, workdir)
     }
+}
+
+fn run_command_with_stdin(agent: &str, mut cmd: Command, workdir: &Path, input: &str) -> anyhow::Result<BuildOutput> {
+    use std::io::Write;
+    fs::create_dir_all(workdir)?;
+    cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let start = Instant::now();
+    let mut child = cmd.spawn().map_err(|e| anyhow::anyhow!("could not start {agent}: {e}"))?;
+    if let Some(mut si) = child.stdin.take() {
+        let _ = si.write_all(input.as_bytes());
+    }
+    let out = child.wait_with_output()?;
+    Ok(BuildOutput {
+        agent: agent.into(),
+        ok: out.status.success(),
+        seconds: start.elapsed().as_secs_f64(),
+        stdout_tail: tail(&String::from_utf8_lossy(&out.stdout), 4000),
+        stderr_tail: tail(&String::from_utf8_lossy(&out.stderr), 2000),
+        files: list_files(workdir),
+    })
 }
 
 /// OpenAI Codex CLI.
@@ -96,7 +122,7 @@ impl Agent for Codex {
         which(&self.binary)
     }
     fn run(&self, workdir: &Path, prompt: &str) -> anyhow::Result<BuildOutput> {
-        let mut cmd = Command::new(&self.binary);
+        let mut cmd = command_for(&self.binary);
         cmd.current_dir(workdir).arg("exec").args(&self.extra_args).arg(prompt);
         run_command(self.name(), cmd, workdir)
     }
@@ -119,6 +145,7 @@ impl Agent for Script {
         self.template.split_whitespace().next().map(which).unwrap_or(false)
     }
     fn run(&self, workdir: &Path, prompt: &str) -> anyhow::Result<BuildOutput> {
+        fs::create_dir_all(workdir)?;
         let prompt_file = workdir.join(".aysar-prompt.md");
         fs::write(&prompt_file, prompt)?;
         let parts: Vec<String> = shell_split(&self.template)
@@ -126,7 +153,7 @@ impl Agent for Script {
             .map(|p| p.replace("{prompt_file}", &prompt_file.display().to_string()).replace("{prompt}", prompt))
             .collect();
         let (bin, rest) = parts.split_first().ok_or_else(|| anyhow::anyhow!("empty agent template"))?;
-        let mut cmd = Command::new(bin);
+        let mut cmd = command_for(bin);
         cmd.current_dir(workdir).args(rest);
         let out = run_command(&self.label, cmd, workdir);
         let _ = fs::remove_file(&prompt_file);
@@ -183,7 +210,9 @@ fn preset(name: &str) -> Option<Script> {
 
 /// Choose an agent by name, or the best available one.
 pub fn select(name: Option<&str>) -> anyhow::Result<Box<dyn Agent>> {
-    match name.map(|s| s.to_ascii_lowercase()).as_deref() {
+    // Names are matched case-insensitively; a command template keeps its case.
+    let original = name.map(|s| s.trim().to_string());
+    match original.as_deref().map(|s| s.to_ascii_lowercase()).as_deref() {
         None | Some("auto") => {
             let c = ClaudeCode::default();
             if c.available() {
@@ -210,7 +239,7 @@ pub fn select(name: Option<&str>) -> anyhow::Result<Box<dyn Agent>> {
                 return Ok(Box::new(p));
             }
             if other.contains(' ') || other.contains("{prompt") {
-                Ok(Box::new(Script { label: "script".into(), template: other.to_string() }))
+                Ok(Box::new(Script { label: "script".into(), template: original.unwrap_or_default() }))
             } else {
                 let names: Vec<&str> = PRESETS.iter().map(|(n, _, _)| *n).collect();
                 anyhow::bail!(
@@ -272,11 +301,32 @@ pub fn status_detailed() -> Vec<AgentStatus> {
     out
 }
 
+/// Build a `Command` for `bin`, going through `cmd /C` on Windows when the
+/// binary is a `.cmd`/`.bat` shim (npm installs Claude Code and Codex that way).
+fn command_for(bin: &str) -> Command {
+    if cfg!(windows) && !bin.contains('/') && !bin.contains('\\') {
+        if let Some(path) = std::env::var_os("PATH") {
+            for dir in std::env::split_paths(&path) {
+                for ext in [".cmd", ".bat"] {
+                    let p = dir.join(format!("{bin}{ext}"));
+                    if p.is_file() {
+                        let mut c = Command::new("cmd");
+                        c.arg("/C").arg(p);
+                        return c;
+                    }
+                }
+            }
+        }
+    }
+    Command::new(bin)
+}
+
 fn run_command(agent: &str, mut cmd: Command, workdir: &Path) -> anyhow::Result<BuildOutput> {
     fs::create_dir_all(workdir)?;
     cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     let start = Instant::now();
-    let out = cmd.output().map_err(|e| anyhow::anyhow!("could not start {agent}: {e}"))?;
+    let program = cmd.get_program().to_string_lossy().to_string();
+    let out = cmd.output().map_err(|e| anyhow::anyhow!("could not start {agent} (`{program}`): {e}"))?;
     Ok(BuildOutput {
         agent: agent.into(),
         ok: out.status.success(),
@@ -392,6 +442,11 @@ mod tests {
         assert!(select(Some("dry-run")).is_ok());
         assert_eq!(select(Some("aider")).unwrap().name(), "aider");
         assert_eq!(select(Some("my-agent --file {prompt_file}")).unwrap().name(), "script");
+        assert_eq!(select(Some("AIDER")).unwrap().name(), "aider");
+        // A template keeps its case (an error names the binary as given).
+        let t = select(Some("/Users/Me/bin/Agent --model GPT-4o {prompt_file}")).unwrap();
+        let err = t.run(&std::env::temp_dir().join(format!("aysar-case-{}", std::process::id())), "x").unwrap_err();
+        assert!(err.to_string().contains("/Users/Me/bin/Agent"), "{err}");
         assert!(status_detailed().iter().any(|a| a.name == "gemini"));
     }
 }

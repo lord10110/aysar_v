@@ -286,12 +286,14 @@ pub fn detect_stack(request: &str) -> Option<String> {
         ("kotlin", "Kotlin"),
         ("tauri", "Tauri"),
         ("electron", "Electron"),
-        ("go ", "Go"),
         ("golang", "Go"),
+        ("in go", "Go"),
+        ("with go", "Go"),
+        ("using go", "Go"),
     ];
     let mut found: Vec<&str> = Vec::new();
     for (needle, label) in known {
-        if r.contains(needle) && !found.contains(&label) {
+        if contains_word(&r, needle.trim()) && !found.contains(&label) {
             found.push(label);
         }
     }
@@ -300,6 +302,23 @@ pub fn detect_stack(request: &str) -> Option<String> {
     } else {
         Some(found.join(" + "))
     }
+}
+
+/// `needle` must appear with non-alphanumeric characters (or the ends) on
+/// both sides, so "trust" is not Rust and "swiftly" is not Swift.
+fn contains_word(hay: &str, needle: &str) -> bool {
+    let mut from = 0;
+    while let Some(i) = hay[from..].find(needle) {
+        let start = from + i;
+        let end = start + needle.len();
+        let before_ok = start == 0 || !hay[..start].chars().next_back().map(|c| c.is_alphanumeric()).unwrap_or(false);
+        let after_ok = end == hay.len() || !hay[end..].chars().next().map(|c| c.is_alphanumeric()).unwrap_or(false);
+        if before_ok && after_ok {
+            return true;
+        }
+        from = end;
+    }
+    false
 }
 
 fn first_words(s: &str, n: usize) -> String {
@@ -373,6 +392,8 @@ mod tests {
         assert_eq!(spec.pages.len(), 1);
         assert_eq!(spec.behaviors.len(), 2);
         assert_eq!(spec.stack.as_deref(), Some("React + Tailwind CSS"));
+        assert_eq!(detect_stack("a site I can trust, swiftly, go to it"), None);
+        assert_eq!(detect_stack("Rebuild in Rust please"), Some("Rust".into()));
         assert!(spec.to_markdown().contains("## Pages"));
         let round: Spec = Spec::from_json(&spec.to_json()).unwrap();
         assert_eq!(round.pages[0].headings[0].text, "Hi");

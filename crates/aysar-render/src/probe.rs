@@ -143,7 +143,8 @@ const PROBE_JS: &str = r#"
     const key = u.pathname + u.search;
     if (seen.has(key)) continue;
     seen.add(key);
-    if (links.length >= 40) break;
+    if (links.length >= 25) break;
+    if (links.length) await new Promise(r => setTimeout(r, 150));   // polite pacing
     let ok = false;
     try {
       let r = await fetch(u.href, { method: 'HEAD', redirect: 'follow' });

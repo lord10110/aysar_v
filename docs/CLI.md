@@ -15,7 +15,7 @@ Global flags (any command): `--deep` / `--clean-room` (mode), `--no-render` (ski
 | `aysar compare <original> <build>` | Checks any two sites/folders/captures without a project. |
 | `aysar status <project> [--json]` | Stage, score, agent, candidates, history, open questions. |
 | `aysar evidence <project> [--kind observation\|inference\|check\|decision\|action]` | Prints the ledger. |
-| `aysar ui [--port 7331] [--no-open] [--projects-dir …]` | Local dashboard. |
+| `aysar ui [--port 7331] [--no-open] [--projects-dir …] [--bind 127.0.0.1]` | Local dashboard (no login; keep it on loopback unless inside a container). |
 | `aysar mcp` | Serves the tools over MCP on stdio. |
 | `aysar setup` | Prints the MCP registration snippet. |
 | `aysar config [--init]` | Shows (or writes a starter) `config.toml`. |

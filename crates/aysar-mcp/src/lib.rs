@@ -80,10 +80,14 @@ pub fn call_tool(name: &str, args: &Value) -> anyhow::Result<Value> {
         "aysar_study" => {
             let target = Target::parse(&s("target").ok_or_else(|| anyhow::anyhow!("target is required"))?);
             let mode = if b("deep") { Mode::Deep } else { Mode::CleanRoom };
-            let cap = aysar_capture::capture(
+            let mut cap = aysar_capture::capture(
                 &target,
                 &CaptureOptions { mode, max_pages: n("max_pages", 5), ..Default::default() },
             )?;
+            let render = args.get("render").and_then(|v| v.as_bool()).unwrap_or(true);
+            if render {
+                aysar_orchestrator::render_adhoc(&mut cap, &target, &Quiet)?;
+            }
             Ok(text_result(aysar_capture::summarise(&cap), Some(serde_json::to_value(&cap)?)))
         }
         "aysar_identify" => {

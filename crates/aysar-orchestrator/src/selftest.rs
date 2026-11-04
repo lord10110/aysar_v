@@ -70,35 +70,50 @@ pub fn run(app_dir: &Path, rep: &dyn Reporter) -> anyhow::Result<Option<SelfTest
     let Some(cmd) = m.selftest.filter(|c| !c.trim().is_empty()) else { return Ok(None) };
     rep.say(&format!("  Self-test: `{cmd}`"));
 
-    let mut child = shell(&cmd)
-        .current_dir(app_dir)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| anyhow::anyhow!("could not start self-test `{cmd}`: {e}"))?;
+    let mut command = shell(&cmd);
+    command.current_dir(app_dir).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        // Own process group, so a timeout can kill the whole tree (cargo, node, …).
+        command.process_group(0);
+    }
+    let mut child = command.spawn().map_err(|e| anyhow::anyhow!("could not start self-test `{cmd}`: {e}"))?;
     let start = Instant::now();
+
+    // Drain both pipes on threads: a chatty self-test must never block on a full pipe.
+    let out_reader = {
+        let mut so = child.stdout.take().expect("piped stdout");
+        std::thread::spawn(move || {
+            let mut s = String::new();
+            let _ = so.read_to_string(&mut s);
+            s
+        })
+    };
+    let err_reader = {
+        let mut se = child.stderr.take().expect("piped stderr");
+        std::thread::spawn(move || {
+            let mut s = String::new();
+            let _ = se.read_to_string(&mut s);
+            s
+        })
+    };
+
     let mut timed_out = false;
     let status = loop {
         if let Some(st) = child.try_wait()? {
             break Some(st);
         }
         if start.elapsed() > TIMEOUT {
-            let _ = child.kill();
+            kill_tree(&mut child);
             timed_out = true;
             break None;
         }
         std::thread::sleep(Duration::from_millis(200));
     };
-    let mut out = String::new();
-    if let Some(mut so) = child.stdout.take() {
-        let _ = so.read_to_string(&mut out);
-    }
-    let mut err = String::new();
-    if let Some(mut se) = child.stderr.take() {
-        let _ = se.read_to_string(&mut err);
-    }
     let _ = child.wait();
+    let out = out_reader.join().unwrap_or_default();
+    let err = err_reader.join().unwrap_or_default();
 
     let mut passes = Vec::new();
     let mut fails = Vec::new();
@@ -168,6 +183,23 @@ pub fn fold_into(report: &mut Report, st: SelfTest) {
     }
 }
 
+/// Kill the child and everything it started.
+fn kill_tree(child: &mut std::process::Child) {
+    #[cfg(unix)]
+    {
+        // SAFETY: killpg on the process group we created with process_group(0);
+        // the pid is our own child's, so the group id is known and valid.
+        unsafe {
+            libc::killpg(child.id() as libc::pid_t, libc::SIGKILL);
+        }
+    }
+    #[cfg(windows)]
+    {
+        let _ = Command::new("taskkill").args(["/PID", &child.id().to_string(), "/T", "/F"]).output();
+    }
+    let _ = child.kill();
+}
+
 fn shell(cmd: &str) -> Command {
     if cfg!(windows) {
         let mut c = Command::new("cmd");
@@ -203,6 +235,12 @@ mod tests {
         assert_eq!(st.fails, vec!["game over screen".to_string()]);
         assert!((st.score() - 2.0 / 3.0).abs() < 0.01);
         assert!(run(&dir.join("nope"), &Quiet).unwrap().is_none());
+
+        // A chatty self-test (far more than a pipe buffer) must not deadlock.
+        std::fs::write(dir.join(FILE), r#"{"selftest":"i=0; while [ $i -lt 20000 ]; do echo 'PASS line number here is long enough to fill buffers quickly'; i=$((i+1)); done"}"#).unwrap();
+        let st = run(&dir, &Quiet).unwrap().unwrap();
+        assert!(st.ok);
+        assert_eq!(st.passes.len(), 20000);
         let _ = std::fs::remove_dir_all(dir);
     }
 }

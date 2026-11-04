@@ -228,6 +228,7 @@ dependencies = [
  "aysar-render",
  "aysar-spec",
  "aysar-verify",
+ "libc",
  "serde",
  "serde_json",
  "toml",

@@ -20,6 +20,20 @@ All notable changes to Aysar. The format follows [Keep a Changelog](https://keep
 - robots.txt (Allow/Disallow/Crawl-delay) and a polite delay between requests.
 - Release workflow for Linux (x86_64, aarch64), macOS (arm64, x86_64) and Windows; CLI integration tests.
 
+### Security (from an independent review before release)
+- Dashboard: loopback `Host` required (DNS rebinding), POSTs must be JSON with an `X-Aysar` header (cross-site requests), strict project names (Windows paths included), only known agent names from the page, one job per project; `--bind` for containers with a warning.
+- Self-test runner drains pipes on threads and kills the whole process group on timeout (no deadlock, no orphans).
+- Chromium runs sandboxed when it can; the `--no-sandbox` fallback is used only if the sandboxed launch fails (root in containers).
+- A single-file target is served from a scratch folder, not its parent directory.
+
+### Fixed
+- Panic on non-ASCII CSS in Deep mode and in every check of a build.
+- Agent command templates kept their case only in part; now they are passed as written (names are still matched case-insensitively).
+- Windows: `.cmd`/`.bat` shims run through `cmd /C`; very large prompts go to Claude Code on stdin.
+- The behaviour probe ran at every width (up to 120 requests per page); it now runs once, paced, capped at 25 links.
+- `detect_stack` matched inside words ("trust" → Rust); whole words only now, and bare "go" is no longer a language.
+- `dist/` folders are studied like any other; MCP `aysar_study` honours `render: false`.
+
 ### Changed
 - Weights: with a renderer the visual leg carries 0.50 (0.35 when behaviour is also present).
 - Styles are sampled at the widest viewport; mobile emulation is never used (it would lay out at 980 px).

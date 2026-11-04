@@ -117,7 +117,7 @@
 <script>
 const $ = (s, r=document) => r.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const api = async (p, opts) => { const r = await fetch(p, opts); const j = await r.json().catch(()=>({})); if (!r.ok) throw new Error(j.error || r.statusText); return j; };
+const api = async (p, opts) => { if (opts && opts.method === 'POST') opts.headers = { 'Content-Type': 'application/json', 'X-Aysar': '1', ...(opts.headers||{}) }; const r = await fetch(p, opts); const j = await r.json().catch(()=>({})); if (!r.ok) throw new Error(j.error || r.statusText); return j; };
 let current = null, doctor = null, jobsTimer = null;
 
 const STAGES = ['new','studied','specified','built','checked','ready'];
