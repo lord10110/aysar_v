@@ -134,6 +134,18 @@ enum Cmd {
     Mcp,
     /// Print the JSON snippet to register Aysar as an MCP server.
     Setup,
+    /// Open the local dashboard in your browser (projects, checks, pictures, build/check buttons).
+    Ui {
+        /// Port on 127.0.0.1 (0 = any free port).
+        #[arg(long, default_value_t = 7331)]
+        port: u16,
+        /// Do not try to open a browser.
+        #[arg(long)]
+        no_open: bool,
+        /// Projects folder (default: config, else ~/Documents/Aysar).
+        #[arg(long)]
+        projects_dir: Option<PathBuf>,
+    },
     /// Show the configuration file, or write a starter one with `--init`.
     Config {
         /// Write a commented starter config if none exists.
@@ -292,7 +304,7 @@ fn run() -> anyhow::Result<()> {
                 anyhow::bail!("no spec yet; run `aysar spec {}` first", project.display());
             }
             let round = p.next_check_number();
-            let prev = latest_report(&p)?;
+            let prev = aysar_orchestrator::latest_report(&p)?;
             let agent = agent.or_else(|| p.state.agent.clone()).or(cfg.agent.clone());
             aysar_orchestrator::build(&mut p, agent.as_deref(), round, prev.as_ref(), &rep)?;
             aysar_orchestrator::check(&mut p, &rep)?;
@@ -367,6 +379,19 @@ fn run() -> anyhow::Result<()> {
 
         Cmd::Mcp => aysar_mcp::serve_stdio()?,
 
+        Cmd::Ui { port, no_open, projects_dir } => {
+            let dir =
+                projects_dir.or(cfg.projects_dir.clone()).unwrap_or_else(aysar_orchestrator::default_projects_dir);
+            std::fs::create_dir_all(&dir)?;
+            aysar_ui::Ui::new(dir).serve(port, move |bound| {
+                let url = format!("http://127.0.0.1:{bound}/");
+                println!("Aysar dashboard: {url}  (Ctrl+C to stop)");
+                if !no_open {
+                    open_browser(&url);
+                }
+            })?;
+        }
+
         Cmd::Config { init } => {
             let path = aysar_orchestrator::config::Config::path();
             if init && !path.exists() {
@@ -400,6 +425,21 @@ fn run() -> anyhow::Result<()> {
     Ok(())
 }
 
+fn open_browser(url: &str) {
+    let (cmd, args): (&str, Vec<&str>) = if cfg!(target_os = "macos") {
+        ("open", vec![url])
+    } else if cfg!(windows) {
+        ("cmd", vec!["/C", "start", "", url])
+    } else {
+        ("xdg-open", vec![url])
+    };
+    let _ = std::process::Command::new(cmd)
+        .args(args)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+}
+
 const STARTER_CONFIG: &str = r#"# Aysar configuration. Every line is optional; flags and AYSAR_* variables override it.
 
 # projects_dir = "/home/me/Documents/Aysar"
@@ -425,16 +465,4 @@ fn load_or_capture(s: &str, mode: Mode, rep: &dyn aysar_orchestrator::Reporter) 
         aysar_capture::capture(&t, &aysar_capture::CaptureOptions { mode, max_pages: 20, ..Default::default() })?;
     aysar_orchestrator::render_adhoc(&mut cap, &t, rep)?;
     Ok(cap)
-}
-
-fn latest_report(p: &Project) -> anyhow::Result<Option<aysar_verify::Report>> {
-    let n = p.next_check_number();
-    if n <= 1 {
-        return Ok(None);
-    }
-    let path = p.checks_dir().join(format!("check-{:03}.json", n - 1));
-    if !path.exists() {
-        return Ok(None);
-    }
-    Ok(Some(serde_json::from_str(&std::fs::read_to_string(path)?)?))
 }

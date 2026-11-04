@@ -168,6 +168,7 @@ dependencies = [
  "aysar-orchestrator",
  "aysar-render",
  "aysar-spec",
+ "aysar-ui",
  "aysar-verify",
  "clap",
  "libc",
@@ -251,6 +252,20 @@ dependencies = [
  "anyhow",
  "aysar-core",
  "serde_json",
+]
+
+[[package]]
+name = "aysar-ui"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "aysar-build",
+ "aysar-core",
+ "aysar-orchestrator",
+ "aysar-render",
+ "serde",
+ "serde_json",
+ "tiny_http",
 ]
 
 [[package]]

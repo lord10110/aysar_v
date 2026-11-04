@@ -10,7 +10,7 @@ use aysar_core::evidence::{EvidenceKind, Ledger};
 use aysar_core::project::{slugify, Project, Stage};
 use aysar_core::spec::Spec;
 use aysar_core::{Kind, Mode, Target};
-use aysar_verify::Report;
+pub use aysar_verify::Report;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -616,6 +616,19 @@ fn copy_dir(from: &Path, to: &Path) -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+/// The most recent check report of a project, if any.
+pub fn latest_report(p: &Project) -> anyhow::Result<Option<Report>> {
+    let n = p.next_check_number();
+    if n <= 1 {
+        return Ok(None);
+    }
+    let path = p.checks_dir().join(format!("check-{:03}.json", n - 1));
+    if !path.exists() {
+        return Ok(None);
+    }
+    Ok(Some(serde_json::from_str(&fs::read_to_string(path)?)?))
 }
 
 fn last_lines(s: &str, n: usize) -> String {

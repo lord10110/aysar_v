@@ -9,6 +9,7 @@ members = [
     "crates/aysar-verify",
     "crates/aysar-render",
     "crates/aysar-enrich",
+    "crates/aysar-ui",
     "crates/aysar-orchestrator",
     "crates/aysar-mcp",
     "apps/aysar-cli",
@@ -31,6 +32,7 @@ aysar-build = { path = "crates/aysar-build" }
 aysar-verify = { path = "crates/aysar-verify" }
 aysar-render = { path = "crates/aysar-render" }
 aysar-enrich = { path = "crates/aysar-enrich" }
+aysar-ui = { path = "crates/aysar-ui" }
 aysar-orchestrator = { path = "crates/aysar-orchestrator" }
 aysar-mcp = { path = "crates/aysar-mcp" }
 

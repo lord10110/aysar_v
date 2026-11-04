@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aysar</title>
+<style>
+  :root {
+    --bg: #f6f3ee; --panel: #fffdf9; --ink: #1f1a16; --muted: #6b625a; --line: #e4dcd1;
+    --accent: #8a4b1f; --accent-ink: #fff; --ok: #2f7a4a; --warn: #b7791f; --bad: #b3382c;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #17140f; --panel: #1f1b15; --ink: #efe8df; --muted: #a79d91; --line: #35302a;
+      --accent: #d08a4e; --accent-ink: #1f1a16; --ok: #6fc18c; --warn: #e0a84a; --bad: #e46a5c;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #17140f; --panel: #1f1b15; --ink: #efe8df; --muted: #a79d91; --line: #35302a;
+    --accent: #d08a4e; --accent-ink: #1f1a16; --ok: #6fc18c; --warn: #e0a84a; --bad: #e46a5c;
+  }
+  * { box-sizing: border-box }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--sans) }
+  a { color: var(--accent) }
+  header { display: flex; align-items: center; gap: 16px; padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--panel); position: sticky; top: 0; z-index: 2 }
+  header h1 { font-size: 18px; margin: 0; letter-spacing: .02em }
+  header h1 small { color: var(--muted); font-weight: 400; margin-left: 8px }
+  header .spacer { flex: 1 }
+  .layout { display: grid; grid-template-columns: 300px 1fr; min-height: calc(100vh - 57px) }
+  @media (max-width: 860px) { .layout { grid-template-columns: 1fr } aside { border-right: 0; border-bottom: 1px solid var(--line) } }
+  aside { border-right: 1px solid var(--line); background: var(--panel); padding: 16px }
+  main { padding: 20px 24px; max-width: 1200px; min-width: 0 }
+  button { font: inherit; border: 1px solid var(--line); background: var(--panel); color: var(--ink); padding: 7px 12px; border-radius: 8px; cursor: pointer }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent) }
+  button:disabled { opacity: .5; cursor: default }
+  input, select, textarea { font: inherit; width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink) }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 4px }
+  .list { list-style: none; margin: 0; padding: 0 }
+  .list li { padding: 10px 10px; border-radius: 8px; cursor: pointer; display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; align-items: center }
+  .list li:hover { background: var(--bg) }
+  .list li.active { background: var(--bg); outline: 1px solid var(--line) }
+  .list .name { font-weight: 600 }
+  .list .req { color: var(--muted); font-size: 13px; grid-column: 1 / -1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+  .score { font-variant-numeric: tabular-nums; font-weight: 700; padding: 2px 8px; border-radius: 999px; font-size: 13px; border: 1px solid var(--line) }
+  .score.good { color: var(--ok) } .score.mid { color: var(--warn) } .score.low { color: var(--bad) }
+  .stages { display: flex; gap: 6px; flex-wrap: wrap; margin: 12px 0 }
+  .stage { padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); font-size: 13px; color: var(--muted) }
+  .stage.done { background: var(--ink); color: var(--bg); border-color: var(--ink) }
+  .stage.now { border-color: var(--accent); color: var(--accent); font-weight: 600 }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 16px }
+  .card h2 { font-size: 15px; margin: 0 0 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted) }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center }
+  .kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; font-size: 14px }
+  .kv dt { color: var(--muted) } .kv dd { margin: 0 }
+  .mismatch { padding: 6px 0; border-top: 1px dashed var(--line); font-size: 14px }
+  .mismatch:first-child { border-top: 0 }
+  pre { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 12px; overflow: auto; font: 12.5px/1.45 var(--mono); max-height: 420px }
+  .pics { display: grid; gap: 12px }
+  .pics figure { margin: 0 }
+  .pics img { width: 100%; border: 1px solid var(--line); border-radius: 8px; background: #fff }
+  .pics figcaption { font-size: 13px; color: var(--muted); margin-top: 4px }
+  .legs { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin: 8px 0 14px }
+  @media (max-width: 1100px) { .legs { grid-template-columns: repeat(3, minmax(0, 1fr)) } }
+  @media (max-width: 600px) { .legs { grid-template-columns: repeat(2, minmax(0, 1fr)) } }
+  .leg { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px }
+  .leg b { display: block; font-size: 22px; font-variant-numeric: tabular-nums }
+  .leg span { color: var(--muted); font-size: 12.5px }
+  .bar { height: 6px; background: var(--bg); border-radius: 3px; margin-top: 6px; overflow: hidden }
+  .bar i { display: block; height: 100%; background: var(--accent) }
+  .log { font: 12.5px/1.45 var(--mono); white-space: pre-wrap; max-height: 260px; overflow: auto; background: var(--bg); border-radius: 8px; padding: 10px; border: 1px solid var(--line) }
+  .job { border-top: 1px solid var(--line); padding: 8px 0 }
+  .job .t { font-weight: 600 } .job .s { color: var(--muted); font-size: 13px; margin-left: 8px }
+  .ev { font: 12.5px/1.4 var(--mono); border-top: 1px dashed var(--line); padding: 4px 0; display: grid; grid-template-columns: 70px 90px 1fr; gap: 8px }
+  .ev .k { color: var(--muted) }
+  .empty { color: var(--muted); padding: 30px 0; text-align: center }
+  details summary { cursor: pointer; color: var(--muted); font-size: 13px }
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 14px }
+  .tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 8px 12px; color: var(--muted) }
+  .tabs button.on { color: var(--ink); border-bottom-color: var(--accent) }
+  .hint { color: var(--muted); font-size: 13px }
+</style>
+</head>
+<body>
+<header>
+  <h1>Aysar <small id="version"></small></h1>
+  <span class="hint" id="doctor"></span>
+  <div class="spacer"></div>
+  <button id="theme" title="Toggle theme">◐</button>
+  <button class="primary" id="new">New project</button>
+</header>
+<div class="layout">
+  <aside>
+    <ul class="list" id="projects"></ul>
+    <div class="empty" id="noprojects" hidden>No projects yet.<br>Press <b>New project</b>.</div>
+  </aside>
+  <main id="main"><div class="empty">Pick a project on the left, or start a new one.</div></main>
+</div>
+
+<template id="tpl-new">
+  <div class="card">
+    <h2>New project</h2>
+    <label>Target: a website address, a local folder or file, or <code>-</code> for none</label>
+    <input id="f-target" placeholder="https://example.com">
+    <label>What do you want?</label>
+    <textarea id="f-request" rows="2" placeholder="Recreate this website in plain HTML"></textarea>
+    <div class="row">
+      <div style="flex:1"><label>Kind</label><select id="f-kind"><option value="">detect</option><option value="website">website</option><option value="app">app</option><option value="game">game</option></select></div>
+      <div style="flex:1"><label>Agent</label><select id="f-agent"><option value="">auto</option></select></div>
+      <div style="flex:1"><label>Mode</label><select id="f-deep"><option value="false">Clean room</option><option value="true">Deep</option></select></div>
+    </div>
+    <div class="row" style="margin-top:14px"><button class="primary" id="f-go">Start</button><span class="hint">Study → Spec → Build → Check → Refine. You can watch the log below.</span></div>
+  </div>
+</template>
+
+<script>
+const $ = (s, r=document) => r.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const api = async (p, opts) => { const r = await fetch(p, opts); const j = await r.json().catch(()=>({})); if (!r.ok) throw new Error(j.error || r.statusText); return j; };
+let current = null, doctor = null, jobsTimer = null;
+
+const STAGES = ['new','studied','specified','built','checked','ready'];
+function scoreClass(s){ return s==null ? '' : s>=85 ? 'good' : s>=60 ? 'mid' : 'low'; }
+function fmtScore(s){ return s==null ? '–' : Math.round(s); }
+
+async function loadDoctor(){
+  doctor = await api('/api/doctor');
+  $('#version').textContent = 'v' + doctor.version;
+  const agents = doctor.agents.filter(a=>a.installed && a.name!=='dry-run').map(a=>a.name);
+  $('#doctor').textContent = (doctor.chrome ? 'Chromium ✓' : 'no Chromium') + ' · agents: ' + (agents.length ? agents.join(', ') : 'none (dry-run)') + ' · ' + doctor.projects_dir;
+}
+
+async function loadProjects(){
+  const {projects} = await api('/api/projects');
+  const ul = $('#projects'); ul.innerHTML = '';
+  $('#noprojects').hidden = projects.length > 0;
+  for (const p of projects) {
+    const li = document.createElement('li');
+    li.className = p.name === current ? 'active' : '';
+    li.innerHTML = `<span class="name">${esc(p.name)}</span><span class="score ${scoreClass(p.score)}">${fmtScore(p.score)}</span><span class="req">${esc(p.kind)} · ${esc(p.stage)} · ${esc(p.request)}</span>`;
+    li.onclick = () => open(p.name);
+    ul.appendChild(li);
+  }
+}
+
+async function open(name){
+  current = name; loadProjects();
+  const d = await api('/api/projects/' + encodeURIComponent(name));
+  const s = d.state;
+  const idx = STAGES.indexOf(String(s.stage).toLowerCase());
+  const stages = STAGES.map((st,i)=>`<span class="stage ${i<idx?'done':i===idx?'now':''}">${st}</span>`).join('');
+  const last = d.checks[d.checks.length-1];
+  const legs = last ? `<div class="legs">
+      ${leg('Overall', last.score)}${leg('Structure', last.structure)}${leg('Content', last.content)}${leg('Visual', last.visual)}${leg('Behaviour', last.behavior)}
+    </div>` : '<p class="hint">No check yet.</p>';
+  const mismatches = last && last.mismatches.length ? last.mismatches.map(m=>`<div class="mismatch">${md(m)}</div>`).join('') : (last ? '<p class="hint">Nothing to fix at this level of checking.</p>' : '');
+  const pics = last && last.pictures.length ? `<div class="pics">${last.pictures.map(p=>`<figure><img loading="lazy" src="/api/projects/${encodeURIComponent(name)}/file/${encodeURIComponent(p)}"><figcaption>${esc(p.split('/').pop())} — original · build · difference</figcaption></figure>`).join('')}</div>` : '';
+  const candidates = (s.candidates||[]).length ? `<dt>Candidates</dt><dd>${s.candidates.map(c=>`${esc(c[0])} = ${c[1]==null?'n/a':Math.round(c[1])}`).join(', ')}</dd>` : '';
+  const inbox = d.inbox.length ? `<div class="card"><h2>Open questions</h2>${d.inbox.map(q=>`<pre>${esc(q.text)}</pre>`).join('')}</div>` : '';
+  $('#main').innerHTML = `
+    <h2 style="margin:0 0 4px">${esc(s.name)}</h2>
+    <div class="hint">${esc(s.request)}</div>
+    <div class="stages">${stages}</div>
+    <div class="card">
+      <div class="row">
+        <button class="primary" id="b-build">Build another round</button>
+        <button id="b-check">Check again</button>
+        <select id="b-agent" style="width:auto"><option value="">agent: ${esc(s.agent||'auto')}</option></select>
+        <span class="hint" id="b-msg"></span>
+      </div>
+    </div>
+    <div class="card"><h2>Latest check</h2>${legs}${mismatches}</div>
+    ${pics ? `<div class="card"><h2>Side by side</h2>${pics}</div>` : ''}
+    ${inbox}
+    <div class="card">
+      <div class="tabs"><button class="on" data-t="spec">Spec</button><button data-t="checks">Checks (${d.checks.length})</button><button data-t="shots">Screenshots</button><button data-t="evidence">Evidence</button><button data-t="about">About</button></div>
+      <div id="tab-spec"><pre>${esc(d.spec_markdown || 'No spec yet.')}</pre></div>
+      <div id="tab-checks" hidden>${d.checks.slice().reverse().map(c=>`<details><summary>${esc(c.id)} — ${Math.round(c.score)}/100, ${c.mismatches.length} mismatch(es)</summary><pre>${esc(c.markdown)}</pre></details>`).join('') || '<p class="hint">No checks yet.</p>'}</div>
+      <div id="tab-shots" hidden><div class="pics" style="grid-template-columns:repeat(auto-fill,minmax(260px,1fr))">${d.screenshots.map(p=>`<figure><img loading="lazy" src="/api/projects/${encodeURIComponent(name)}/file/${encodeURIComponent(p)}"><figcaption>${esc(p.split('/').pop())}</figcaption></figure>`).join('') || '<p class="hint">No screenshots (no Chromium when studied).</p>'}</div></div>
+      <div id="tab-evidence" hidden>${d.evidence.map(e=>`<div class="ev"><span class="k">${esc(e.id)}</span><span class="k">${esc(e.kind)} ${e.confidence.toFixed(2)}</span><span>${esc(e.claim)} <span class="k">← ${esc(e.source)}</span></span></div>`).join('') || '<p class="hint">Empty ledger.</p>'}</div>
+      <div id="tab-about" hidden><dl class="kv"><dt>Folder</dt><dd><code>${esc(d.root)}</code></dd><dt>Target</dt><dd>${esc(typeof s.target==='object' ? (s.target.url||s.target.path||'-') : s.target)}</dd><dt>Kind</dt><dd>${esc(s.kind)}</dd><dt>Mode</dt><dd>${esc(s.mode)}</dd><dt>Agent</dt><dd>${esc(s.agent||'–')}</dd>${candidates}<dt>Created</dt><dd>${esc(s.created_at)}</dd><dt>Updated</dt><dd>${esc(s.updated_at)}</dd></dl>
+        <h3 style="font-size:14px;margin:14px 0 6px">History</h3>${s.history.map(h=>`<div class="ev"><span class="k">${esc(h.at.slice(11,19))}</span><span class="k">${esc(h.stage)}</span><span>${esc(h.note)}</span></div>`).join('')}</div>
+    </div>
+    <div class="card"><h2>Jobs</h2><div id="jobs"></div></div>`;
+  fillAgents($('#b-agent'), true);
+  $('#b-build').onclick = async () => { const agent = $('#b-agent').value; await api(`/api/projects/${encodeURIComponent(name)}/build`, {method:'POST', body: JSON.stringify({agent})}); $('#b-msg').textContent = 'Building…'; pollJobs(); };
+  $('#b-check').onclick = async () => { await api(`/api/projects/${encodeURIComponent(name)}/check`, {method:'POST', body:'{}'}); $('#b-msg').textContent = 'Checking…'; pollJobs(); };
+  for (const b of document.querySelectorAll('.tabs button')) b.onclick = () => { document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on', x===b)); for (const t of ['spec','checks','shots','evidence','about']) $('#tab-'+t).hidden = t !== b.dataset.t; };
+  pollJobs();
+}
+
+function leg(label, v){ const n = v==null ? null : Math.round(v); return `<div class="leg"><b class="${scoreClass(v)}">${n==null?'–':n}</b><span>${label}</span><div class="bar"><i style="width:${n||0}%"></i></div></div>`; }
+function md(s){ return esc(s).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>'); }
+
+function fillAgents(sel, keepFirst){
+  if (!doctor) return;
+  const first = keepFirst ? sel.firstElementChild.outerHTML : '<option value="">auto</option>';
+  sel.innerHTML = first + doctor.agents.map(a=>`<option value="${esc(a.name)}" ${a.installed?'':'disabled'}>${esc(a.name)}${a.installed?'':' (not installed)'}</option>`).join('');
+}
+
+let lastJobsDone = null;
+async function pollJobs(){
+  clearTimeout(jobsTimer);
+  const {jobs} = await api('/api/jobs');
+  const box = $('#jobs');
+  if (box) {
+    const mine = jobs.filter(j => !current || j.project === current).slice().reverse();
+    box.innerHTML = mine.length ? mine.map(j=>`<div class="job"><span class="t">${esc(j.title)}</span><span class="s">${j.done ? (j.ok ? 'done ✓' : 'failed ✗') : 'running…'}</span><div class="log">${esc(j.log.slice(-40).join('\n'))}</div></div>`).join('') : '<p class="hint">Nothing running.</p>';
+  }
+  const running = jobs.some(j=>!j.done);
+  const doneCount = jobs.filter(j=>j.done).length;
+  if (lastJobsDone !== null && doneCount !== lastJobsDone) { loadProjects(); if (current) { const keep = current; setTimeout(()=>open(keep), 300); } }
+  lastJobsDone = doneCount;
+  if (running) jobsTimer = setTimeout(pollJobs, 1500);
+}
+
+$('#new').onclick = () => {
+  current = null; loadProjects();
+  $('#main').innerHTML = ''; $('#main').appendChild($('#tpl-new').content.cloneNode(true));
+  $('#main').insertAdjacentHTML('beforeend', '<div class="card"><h2>Jobs</h2><div id="jobs"></div></div>');
+  fillAgents($('#f-agent'), false);
+  $('#f-go').onclick = async () => {
+    const body = { target: $('#f-target').value.trim() || '-', request: $('#f-request').value, kind: $('#f-kind').value, agent: $('#f-agent').value, deep: $('#f-deep').value === 'true' };
+    try { const r = await api('/api/rebuild', {method:'POST', body: JSON.stringify(body)}); $('#f-go').disabled = true; current = r.project; loadProjects(); pollJobs(); setTimeout(()=>open(r.project), 800); }
+    catch (e) { alert(e.message); }
+  };
+  pollJobs();
+};
+
+$('#theme').onclick = () => { const r = document.documentElement; const next = r.dataset.theme === 'dark' ? 'light' : 'dark'; r.dataset.theme = next; try { localStorage.setItem('aysar-theme', next); } catch (e) {} };
+try { const t = localStorage.getItem('aysar-theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+
+loadDoctor().then(loadProjects).then(pollJobs);
+</script>
+</body>
+</html>
