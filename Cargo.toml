@@ -54,7 +54,7 @@ hex = "0.4"
 headless_chrome = "1.0"
 image = { version = "0.25", default-features = false, features = ["png"] }
 tiny_http = "0.12"
-toml = "0.8"
+toml = "1.1"
 
 [profile.release]
 lto = "thin"
