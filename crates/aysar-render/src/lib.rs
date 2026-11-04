@@ -24,6 +24,13 @@ use std::time::Duration;
 
 pub use server::StaticServer;
 
+/// `AYSAR_RENDER_TRACE=1` prints how long each browser step takes, to stderr.
+fn trace(step: &str, started: std::time::Instant) {
+    if std::env::var_os("AYSAR_RENDER_TRACE").is_some() {
+        eprintln!("[render] {step}: {:.2}s", started.elapsed().as_secs_f64());
+    }
+}
+
 /// The three widths every page is measured at.
 pub const DEFAULT_WIDTHS: [u32; 3] = [360, 768, 1280];
 
@@ -149,13 +156,21 @@ impl Renderer {
         // without the sandbox. `AYSAR_CHROME_NO_SANDBOX=1` skips the first try.
         let skip_sandbox = std::env::var_os("AYSAR_CHROME_NO_SANDBOX").is_some();
         if !skip_sandbox {
-            if let Ok(r) = Self::launch_opts(chrome, true) {
-                if r.healthy() {
+            let t = std::time::Instant::now();
+            let attempt = Self::launch_opts(chrome, true);
+            trace("launch (sandboxed)", t);
+            if let Ok(r) = attempt {
+                let t = std::time::Instant::now();
+                let ok = r.healthy();
+                trace(if ok { "health check ok" } else { "health check failed" }, t);
+                if ok {
                     return Ok(r);
                 }
             }
         }
+        let t = std::time::Instant::now();
         let r = Self::launch_opts(chrome, false)?;
+        trace("launch (no sandbox)", t);
         if r.healthy() {
             Ok(r)
         } else {
@@ -199,7 +214,9 @@ impl Renderer {
 
     /// Render one URL at every width in `opts.widths`.
     pub fn render(&self, url: &str, opts: &RenderOptions) -> anyhow::Result<Rendered> {
+        let t = std::time::Instant::now();
         let tab = self.browser.new_tab().map_err(|e| anyhow::anyhow!("{e}"))?;
+        trace("new tab", t);
         tab.set_default_timeout(opts.timeout);
         let result = self.render_in_tab(&tab, url, opts);
         let _ = tab.close(true);
@@ -227,24 +244,30 @@ impl Renderer {
             // Emulate the viewport exactly so CSS media queries fire.
             set_metrics(tab, width, 900)?;
 
+            let t = std::time::Instant::now();
             tab.navigate_to(url).map_err(|e| anyhow::anyhow!("navigate {url}: {e}"))?;
             tab.wait_until_navigated().map_err(|e| anyhow::anyhow!("load {url}: {e}"))?;
+            trace(&format!("navigate {width}px"), t);
             // Let late layout settle (fonts, lazy content).
             std::thread::sleep(Duration::from_millis(250));
 
+            let t = std::time::Instant::now();
             let measured: Measured = {
                 let v = tab.evaluate(MEASURE_JS, false).map_err(|e| anyhow::anyhow!("measure: {e}"))?;
                 let s = v.value.and_then(|v| v.as_str().map(|s| s.to_string())).unwrap_or_else(|| "{}".into());
                 serde_json::from_str(&s).unwrap_or_default()
             };
+            trace("measure", t);
             let height = measured.height.max(1);
 
             // Full-page screenshot: grow the viewport to the document height.
             set_metrics(tab, width, height.min(8000))?;
             std::thread::sleep(Duration::from_millis(100));
+            let t = std::time::Instant::now();
             let png = tab
                 .capture_screenshot(CaptureScreenshotFormatOption::Png, None, None, true)
                 .map_err(|e| anyhow::anyhow!("screenshot: {e}"))?;
+            trace("screenshot", t);
 
             let dhash = dhash::dhash_png(&png).ok();
             let screenshot = if let Some(dir) = &opts.screenshot_dir {
@@ -277,7 +300,9 @@ impl Renderer {
                     // Back to a normal viewport so "in view" means something for hover targets.
                     set_metrics(tab, width, 900)?;
                     std::thread::sleep(Duration::from_millis(80));
+                    let t = std::time::Instant::now();
                     out.behavior = probe::probe(tab).ok();
+                    trace("probe", t);
                 }
             }
         }

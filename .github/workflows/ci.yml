@@ -26,10 +26,13 @@ jobs:
       - run: cargo fmt --all -- --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo build --release
-      - run: cargo test
+      - run: cargo test -- --nocapture
         timeout-minutes: 20
         env:
           RUST_BACKTRACE: 1
+          AYSAR_RENDER_TRACE: 1
+          # Ubuntu 24.04 runners block unprivileged user namespaces; skip the sandboxed launch attempt.
+          AYSAR_CHROME_NO_SANDBOX: ${{ runner.os == 'Linux' && '1' || '' }}
       - name: Smoke test
         shell: bash
         run: |
