@@ -53,6 +53,11 @@ Rules: every file is complete (never \"…\" or \"rest unchanged\"); paths are r
 no explanations, no markdown fences around the blocks; include README.md and DECISIONS.md; \
 never copy text, logos or images from the original — write original content that serves the same purpose.";
 
+const REMINDER: &str = "\n\n---\nOUTPUT FORMAT REMINDER: reply with the files only, each as\n<<<FILE relative/path.ext>>>\n(whole file)\n<<<END>>>\nNo prose, no ``` fences, no file left out. Start with <<<FILE index.html>>> for a website.";
+
+const CORRECTION: &str = "Your reply contained no <<<FILE path>>> … <<<END>>> blocks, so no files could be written. \
+Send the complete project again, every file in full, using exactly that format and nothing else.";
+
 impl ApiAgent {
     fn endpoint(&self) -> String {
         format!("{}/chat/completions", self.url.trim_end_matches('/'))
@@ -125,9 +130,21 @@ impl Agent for ApiAgent {
             user.push_str("\n\n---\nCURRENT FILES (resend any file you change, complete):\n\n");
             user.push_str(&existing);
         }
-        let reply =
-            self.chat(vec![json!({"role":"system","content":SYSTEM}), json!({"role":"user","content":user})])?;
-        let (written, deleted, note) = apply_reply(workdir, &reply)?;
+        // Small models follow the last instruction best: repeat the format at the end.
+        user.push_str(REMINDER);
+        let mut messages = vec![json!({"role":"system","content":SYSTEM}), json!({"role":"user","content":user})];
+        let mut reply = self.chat(messages.clone())?;
+        let (mut written, mut deleted, mut note) = apply_reply(workdir, &reply)?;
+        if written == 0 && deleted == 0 {
+            // One correction: show the model its own reply and ask again in the protocol.
+            messages.push(json!({"role":"assistant","content":reply}));
+            messages.push(json!({"role":"user","content":CORRECTION}));
+            reply = self.chat(messages)?;
+            let (w, d, n) = apply_reply(workdir, &reply)?;
+            written = w;
+            deleted = d;
+            note = if n.is_empty() { "after one correction".into() } else { format!("after one correction; {n}") };
+        }
         let ok = written > 0;
         Ok(BuildOutput {
             agent: "api".into(),
@@ -186,7 +203,21 @@ pub fn apply_reply(workdir: &Path, reply: &str) -> anyhow::Result<(usize, usize,
         }
     }
     if written == 0 && deleted == 0 {
-        notes.push("the model sent no <<<FILE …>>> blocks; its reply is in stderr".into());
+        // Fallback: files given as Markdown fences (`### index.html` + ```html …```).
+        let fenced = crate::markdown_files::parse(reply);
+        let n = fenced.len();
+        for (path, body) in fenced {
+            if write_file(workdir, &path, &body, &mut notes)? {
+                written += 1;
+            }
+        }
+        if written > 0 {
+            notes.push(format!(
+                "the model answered in Markdown fences instead of the file protocol; {written} of {n} accepted"
+            ));
+        } else {
+            notes.push("the model sent no <<<FILE …>>> blocks and no fenced files; its reply is in stderr".into());
+        }
     }
     Ok((written, deleted, notes.join("; ")))
 }
@@ -244,6 +275,65 @@ mod tests {
         assert_eq!(fs::read_to_string(dir.join("index.html")).unwrap(), "<h1>Hi</h1>\n");
         assert!(dir.join("css").join("site.css").exists());
         assert!(!dir.join("old.txt").exists());
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn accepts_markdown_fences_when_the_protocol_is_ignored() {
+        let dir = std::env::temp_dir().join(format!("aysar-api-md-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let reply = "Here is the website:\n\n### index.html\n```html\n<!doctype html>\n<link rel=\"stylesheet\" href=\"styles.css\">\n<script src=\"scripts.js\"></script>\n```\n\n### styles.css\n```css\nbody{margin:0}\n```\n\n```javascript\nconsole.log('hi')\n```\n";
+        let (w, d, note) = apply_reply(&dir, reply).unwrap();
+        assert_eq!((w, d), (3, 0));
+        assert!(note.contains("Markdown fences"), "{note}");
+        assert!(dir.join("index.html").exists());
+        assert!(dir.join("styles.css").exists());
+        assert!(dir.join("scripts.js").exists(), "nameless js fence takes the name the HTML links");
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn retries_once_when_the_first_reply_has_no_files() {
+        let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+        let port = server.server_addr().to_ip().unwrap().port();
+        let handle = std::thread::spawn(move || {
+            let mut n = 0;
+            for _ in 0..2 {
+                let mut req = server.recv().unwrap();
+                assert_eq!(req.url(), "/v1/chat/completions");
+                let mut body = String::new();
+                req.as_reader().read_to_string(&mut body).unwrap();
+                n += 1;
+                let content = if n == 1 {
+                    assert!(!body.contains("contained no <<<FILE"));
+                    "Sorry, I can only describe the site."
+                } else {
+                    assert!(body.contains("contained no <<<FILE"), "second call carries the correction");
+                    "<<<FILE index.html>>>\n<h1>ok</h1>\n<<<END>>>"
+                };
+                let reply = json!({"choices":[{"message":{"role":"assistant","content":content}}]});
+                req.respond(
+                    tiny_http::Response::from_string(reply.to_string())
+                        .with_header(tiny_http::Header::from_bytes("Content-Type", "application/json").unwrap()),
+                )
+                .unwrap();
+            }
+        });
+        let agent = ApiAgent {
+            url: format!("http://127.0.0.1:{port}/v1"),
+            model: "m".into(),
+            key: None,
+            timeout: Duration::from_secs(10),
+            max_context_bytes: 1000,
+        };
+        let dir = std::env::temp_dir().join(format!("aysar-api-retry-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let out = agent.run(&dir, "Build the site").unwrap();
+        assert!(out.ok, "{}", out.stderr_tail);
+        assert!(out.stdout_tail.contains("after one correction"), "{}", out.stdout_tail);
+        assert_eq!(out.files, vec!["index.html".to_string()]);
+        handle.join().unwrap();
         let _ = fs::remove_dir_all(dir);
     }
 

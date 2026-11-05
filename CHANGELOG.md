@@ -2,6 +2,11 @@
 
 All notable changes to Aysar. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/).
 
+## [0.2.3] — 2026-11-05
+
+### Fixed
+- **Built-in `api` builder with small local models.** First real run on a Windows PC with Ollama + `qwen2.5-coder:7b`: the model answered in Markdown (`### index.html` + a fenced block) instead of the `<<<FILE …>>>` protocol, Aysar wrote 0 files and the check scored 0. Now: files given as Markdown fences are accepted (named from the heading, the fence's info string, or the language default, then matched to what the HTML links); the output format is repeated at the end of the prompt, where small models look; and when a reply still has no files, Aysar sends one correction and asks again before giving up.
+
 ## [0.2.2] — 2026-11-04
 
 ### Added

@@ -12,6 +12,7 @@
 //! sees the original target's files: it works from the spec and the prompt.
 
 pub mod api;
+pub mod markdown_files;
 pub mod prompt;
 
 pub use api::ApiAgent;
