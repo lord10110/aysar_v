@@ -50,7 +50,11 @@ pub fn build_prompt(
     p.push_str("## Deliverables\n");
     p.push_str("- A `README.md` that says how to run it.\n");
     if spec.kind == Kind::Website {
-        p.push_str("- `index.html` at the root, and one file per page in the spec, with the same `<title>`, headings and navigation structure.\n");
+        p.push_str("- One HTML file per page in the spec, with the same `<title>`, headings and navigation structure. Exact files to create:\n");
+        for page in &spec.pages {
+            p.push_str(&format!("  - page `{}` → `{}`\n", page.path, file_for_page(&page.path)));
+        }
+        p.push_str("  Link between pages with these same paths (`/tools/install`, not `tools/install.html`); the checker serves the folder like a web server. The content of each page must be full, not a skeleton: every heading in the spec with a real paragraph or list under it, the word count in the same range as the original, and an image or illustration (an inline SVG you draw is fine) wherever the original has one.\n");
         p.push_str("- Semantic landmarks (`header`, `nav`, `main`, `footer`) where the spec lists them.\n");
         p.push_str("- Forms with the same fields, types and required flags; client-side validation and a visible success/error state.\n");
         p.push_str("- Responsive at 360px, 768px and 1280px widths. The result is rendered at those widths and compared with the original: match the measured colours, fonts, type scale, spacing and the height and order of header, navigation, main, forms and footer given under each page's **Layout (measured)**.\n");
@@ -96,10 +100,58 @@ pub fn build_prompt(
     p
 }
 
+/// The file a page path should live in: `/` → `index.html`, `/learn` → `learn.html`,
+/// `/tools/install` → `tools/install.html`. The checker's static server resolves both
+/// `x.html` and `x/index.html`, so either works; this is the simpler one to ask for.
+pub fn file_for_page(path: &str) -> String {
+    let p = path.trim().trim_matches('/');
+    if p.is_empty() {
+        "index.html".into()
+    } else if p.ends_with(".html") || p.ends_with(".htm") {
+        p.to_string()
+    } else {
+        format!("{p}.html")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use aysar_core::spec::{DesignSystem, Rules};
+
+    #[test]
+    fn pages_map_to_files() {
+        assert_eq!(file_for_page("/"), "index.html");
+        assert_eq!(file_for_page("/learn"), "learn.html");
+        assert_eq!(file_for_page("/tools/install/"), "tools/install.html");
+        assert_eq!(file_for_page("/about.html"), "about.html");
+    }
+
+    #[test]
+    fn prompt_lists_the_exact_files() {
+        let mut spec = Spec {
+            spec_version: 1,
+            name: "t".into(),
+            kind: Kind::Website,
+            request: "Recreate".into(),
+            source: "x".into(),
+            mode: "clean-room".into(),
+            generated_at: String::new(),
+            stack: None,
+            pages: vec![],
+            design: DesignSystem::default(),
+            behaviors: vec![],
+            rules: Rules::default(),
+            program: None,
+            limitations: vec![],
+        };
+        for path in ["/", "/tools/install", "/learn"] {
+            spec.pages.push(aysar_core::spec::PageSpec { path: path.into(), ..Default::default() });
+        }
+        let p = build_prompt(&spec, 1, None, &[]);
+        assert!(p.contains("page `/tools/install` → `tools/install.html`"), "{p}");
+        assert!(p.contains("page `/` → `index.html`"));
+    }
 
     #[test]
     fn prompt_has_sections() {
