@@ -47,7 +47,7 @@ chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
 ureq = "2"
-scraper = "0.20"
+scraper = "0.29"
 url = "2"
 sha2 = "0.10"
 hex = "0.4"
