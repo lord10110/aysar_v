@@ -28,9 +28,17 @@ pub struct ApiAgent {
     pub url: String,
     pub model: String,
     pub key: Option<String>,
+    /// Give up when the model sends nothing for this long (`AYSAR_LLM_IDLE_TIMEOUT`, seconds).
+    /// The answer streams in, so a slow model is never cut off while it is still typing.
     pub timeout: Duration,
+    /// Hard ceiling for one answer (`AYSAR_LLM_TIMEOUT`, seconds).
+    pub max_total: Duration,
     /// Largest file set we will send back for refinement, in bytes.
     pub max_context_bytes: usize,
+}
+
+fn secs_env(name: &str, default: u64) -> Duration {
+    Duration::from_secs(std::env::var(name).ok().and_then(|v| v.trim().parse().ok()).unwrap_or(default))
 }
 
 impl Default for ApiAgent {
@@ -39,7 +47,8 @@ impl Default for ApiAgent {
             url: std::env::var("AYSAR_LLM_URL").unwrap_or_else(|_| "http://localhost:11434/v1".into()),
             model: std::env::var("AYSAR_LLM_MODEL").unwrap_or_else(|_| "qwen2.5-coder:7b".into()),
             key: std::env::var("AYSAR_LLM_KEY").ok().filter(|k| !k.is_empty()),
-            timeout: Duration::from_secs(900),
+            timeout: secs_env("AYSAR_LLM_IDLE_TIMEOUT", 300),
+            max_total: secs_env("AYSAR_LLM_TIMEOUT", 3 * 3600),
             max_context_bytes: 120_000,
         }
     }
@@ -64,8 +73,9 @@ impl ApiAgent {
     }
 
     fn chat(&self, messages: Vec<Value>) -> anyhow::Result<String> {
-        let body = json!({ "model": self.model, "temperature": 0.2, "messages": messages, "stream": false });
-        let agent = ureq::AgentBuilder::new().timeout(self.timeout).build();
+        let body = json!({ "model": self.model, "temperature": 0.2, "messages": messages, "stream": true });
+        let agent =
+            ureq::AgentBuilder::new().timeout_connect(Duration::from_secs(10)).timeout_read(self.timeout).build();
         let mut req = agent.post(&self.endpoint()).set("Content-Type", "application/json");
         if let Some(k) = &self.key {
             req = req.set("Authorization", &format!("Bearer {k}"));
@@ -78,11 +88,69 @@ impl ApiAgent {
             }
             Err(e) => anyhow::bail!("could not reach {} ({e}); is the model server running?", self.endpoint()),
         };
-        let v: Value = resp.into_json()?;
-        v["choices"][0]["message"]["content"]
-            .as_str()
-            .map(|s| s.to_string())
-            .ok_or_else(|| anyhow::anyhow!("no message content in the model's reply"))
+        let streamed = resp.header("Content-Type").map(|c| c.contains("text/event-stream")).unwrap_or(false);
+        let start = Instant::now();
+        let reader = std::io::BufReader::new(resp.into_reader());
+        let mut text = String::new();
+        let mut raw = String::new();
+        let mut last_note = Instant::now();
+        use std::io::BufRead;
+        for line in reader.lines() {
+            if last_note.elapsed() > Duration::from_secs(60) {
+                last_note = Instant::now();
+                eprintln!(
+                    "    {} is still writing: {} characters after {} s",
+                    self.model,
+                    text.len(),
+                    start.elapsed().as_secs()
+                );
+            }
+            let line = match line {
+                Ok(l) => l,
+                Err(e) => anyhow::bail!(
+                    "the model stopped answering ({e}); it sent nothing for {} s. A smaller site (--max-pages), a smaller model, or AYSAR_LLM_IDLE_TIMEOUT can help{}",
+                    self.timeout.as_secs(),
+                    if text.is_empty() { String::new() } else { format!("; {} characters had arrived", text.len()) }
+                ),
+            };
+            if start.elapsed() > self.max_total {
+                anyhow::bail!(
+                    "the model has been answering for {} s (AYSAR_LLM_TIMEOUT); giving up",
+                    start.elapsed().as_secs()
+                );
+            }
+            if !streamed {
+                raw.push_str(&line);
+                continue;
+            }
+            let Some(data) = line.strip_prefix("data:") else { continue };
+            let data = data.trim();
+            if data == "[DONE]" {
+                break;
+            }
+            if let Ok(v) = serde_json::from_str::<Value>(data) {
+                if let Some(piece) = v["choices"][0]["delta"]["content"].as_str() {
+                    text.push_str(piece);
+                } else if let Some(whole) = v["choices"][0]["message"]["content"].as_str() {
+                    text.push_str(whole);
+                }
+                if let Some(err) = v["error"]["message"].as_str() {
+                    anyhow::bail!("{} reported: {err}", self.endpoint());
+                }
+            }
+        }
+        if !streamed {
+            // A server that ignored `stream: true` and sent one JSON object.
+            let v: Value = serde_json::from_str(&raw)?;
+            return v["choices"][0]["message"]["content"]
+                .as_str()
+                .map(|s| s.to_string())
+                .ok_or_else(|| anyhow::anyhow!("no message content in the model's reply"));
+        }
+        if text.is_empty() {
+            anyhow::bail!("the model's reply was empty");
+        }
+        Ok(text)
     }
 
     /// Current files of the project, for refinement rounds, within the budget.
@@ -325,6 +393,7 @@ mod tests {
             model: "m".into(),
             key: None,
             timeout: Duration::from_secs(10),
+            max_total: Duration::from_secs(60),
             max_context_bytes: 1000,
         };
         let dir = std::env::temp_dir().join(format!("aysar-api-retry-{}", std::process::id()));
@@ -335,6 +404,36 @@ mod tests {
         assert_eq!(out.files, vec!["index.html".to_string()]);
         handle.join().unwrap();
         let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn reads_a_streamed_reply() {
+        let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+        let port = server.server_addr().to_ip().unwrap().port();
+        let handle = std::thread::spawn(move || {
+            let req = server.recv().unwrap();
+            let body =
+                "data: {\"choices\":[{\"delta\":{\"role\":\"assistant\",\"content\":\"<<<FILE a.txt>>>\\n\"}}]}\n\n\
+data: {\"choices\":[{\"delta\":{\"content\":\"hello\\n\"}}]}\n\n\
+data: {\"choices\":[{\"delta\":{\"content\":\"<<<END>>>\"}}]}\n\n\
+data: [DONE]\n\n";
+            req.respond(
+                tiny_http::Response::from_string(body)
+                    .with_header(tiny_http::Header::from_bytes("Content-Type", "text/event-stream").unwrap()),
+            )
+            .unwrap();
+        });
+        let agent = ApiAgent {
+            url: format!("http://127.0.0.1:{port}/v1"),
+            model: "m".into(),
+            key: None,
+            timeout: Duration::from_secs(10),
+            max_total: Duration::from_secs(60),
+            max_context_bytes: 1000,
+        };
+        let text = agent.chat(vec![json!({"role":"user","content":"hi"})]).unwrap();
+        assert_eq!(text, "<<<FILE a.txt>>>\nhello\n<<<END>>>");
+        handle.join().unwrap();
     }
 
     #[test]
@@ -365,6 +464,7 @@ mod tests {
             model: "m".into(),
             key: None,
             timeout: Duration::from_secs(10),
+            max_total: Duration::from_secs(60),
             max_context_bytes: 1000,
         };
         assert!(agent.available());

@@ -46,6 +46,7 @@ Global flags (any command): `--deep` / `--clean-room` (mode), `--no-render` (ski
 | `AYSAR_CODEX_BIN`, `AYSAR_CODEX_ARGS` | Codex binary and extra args (default `--full-auto`) |
 | `AYSAR_AGENT_AIDER`, `AYSAR_AGENT_GEMINI`, … | Replace a preset's command template |
 | `AYSAR_LLM_URL`, `AYSAR_LLM_MODEL`, `AYSAR_LLM_KEY` | For the built-in `api` builder and `aysar enrich` (default `http://localhost:11434/v1`, `qwen2.5-coder:7b`) |
+| `AYSAR_LLM_IDLE_TIMEOUT`, `AYSAR_LLM_TIMEOUT` | `api` builder: give up when the model sends nothing for N seconds (default 300), or after N seconds in total (default 10800). The answer streams in, so slow local models are not cut off while still writing |
 | `AYSAR_CRAFT_ANYTHING_BIN` | Path of `craft-anything-cli` for Deep-mode binary analysis |
 
 ## Exit codes

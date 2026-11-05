@@ -2,6 +2,12 @@
 
 All notable changes to Aysar. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/).
 
+## [0.2.4] — 2026-11-05
+
+### Fixed
+- **Slow local models are no longer cut off.** The `api` builder streams the answer and gives up only when the model sends nothing for 5 minutes (`AYSAR_LLM_IDLE_TIMEOUT`) or after 3 hours in total (`AYSAR_LLM_TIMEOUT`), instead of a fixed 15-minute limit that killed a `qwen2.5:14b` run on a laptop mid-answer (Windows error 10060). While it writes, a line every minute reports progress.
+- **The prompt names the exact file for every page** (`page \`/tools/install\` → \`tools/install.html\``) and asks for real content under each heading; small models had built `index.html` alone, as a skeleton.
+
 ## [0.2.3] — 2026-11-05
 
 ### Fixed
