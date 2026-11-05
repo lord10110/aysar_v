@@ -49,7 +49,7 @@ clap_complete = "4"
 ureq = "2"
 scraper = "0.20"
 url = "2"
-sha2 = "0.10"
+sha2 = "0.11"
 hex = "0.4"
 headless_chrome = "1.0"
 image = { version = "0.25", default-features = false, features = ["png"] }
